@@ -166,6 +166,43 @@ async function simulateWebhook({ orderId, status, receivedToken }) {
   assert.strictEqual(blockedNormal, true);
   console.log('   OK — llave normal sigue topada en', allowedNormal, '— el paquete empresarial no afecta a las demás llaves');
 
+  console.log('18) refundUse devuelve un uso gratis consumido (para cuando falla un servicio externo, ej. check_known_vulnerabilities)...');
+  const { apiKey: apiKey5 } = await licensing.createKey();
+  // Nota: en el almacén de respaldo EN MEMORIA (sin Redis configurado, solo
+  // para pruebas locales) getKeyRecord devuelve el mismo objeto por
+  // referencia, no una copia — así que hay que guardar el NÚMERO (no el
+  // objeto) antes de consumir, o la "foto de antes" se mutaría junto con el
+  // registro real. Con Upstash de verdad esto no pasa (cada GET deserializa
+  // su propia copia desde JSON).
+  const freeUsesAlCrear = (await licensing.getKeyRecord(apiKey5)).freeUsesRemaining;
+  const consumed = await licensing.checkAndConsume(apiKey5);
+  assert.strictEqual(consumed.allowed, true);
+  assert.strictEqual(consumed.consumedFrom, 'gratis');
+  const midRefund = await licensing.getKeyRecord(apiKey5);
+  assert.strictEqual(midRefund.freeUsesRemaining, freeUsesAlCrear - 1);
+  const usoHoyAntes = await licensing.getDailyUsage(apiKey5);
+  await licensing.refundUse(apiKey5, consumed.consumedFrom);
+  const afterRefund = await licensing.getKeyRecord(apiKey5);
+  assert.strictEqual(afterRefund.freeUsesRemaining, freeUsesAlCrear, 'el uso gratis debe quedar como si nunca se hubiera consumido');
+  const usoHoyDespues = await licensing.getDailyUsage(apiKey5);
+  assert.strictEqual(usoHoyDespues, usoHoyAntes - 1, 'el conteo diario también debe revertirse');
+  console.log('   OK — uso gratis y conteo diario revertidos correctamente');
+
+  console.log('19) refundUse devuelve un crédito consumido (no un uso gratis)...');
+  const { apiKey: apiKey6 } = await licensing.createKey();
+  await licensing.topUpCredits(apiKey6, 3);
+  // agotar los 5 usos gratis primero para forzar que el próximo consumo salga de créditos
+  for (let i = 0; i < licensing.DEFAULT_FREE_USES; i++) await licensing.checkAndConsume(apiKey6);
+  const consumedCredit = await licensing.checkAndConsume(apiKey6);
+  assert.strictEqual(consumedCredit.allowed, true);
+  assert.strictEqual(consumedCredit.consumedFrom, 'creditos');
+  const midCredit = await licensing.getKeyRecord(apiKey6);
+  assert.strictEqual(midCredit.credits, 2);
+  await licensing.refundUse(apiKey6, consumedCredit.consumedFrom);
+  const afterCredit = await licensing.getKeyRecord(apiKey6);
+  assert.strictEqual(afterCredit.credits, 3, 'el crédito debe quedar como si nunca se hubiera consumido');
+  console.log('   OK — crédito revertido correctamente, sin tocar los usos gratis');
+
   console.log('\nTodas las pruebas de licencias pasaron sin excepciones no capturadas.');
 })().catch((e) => {
   console.error('FALLÓ:', e);

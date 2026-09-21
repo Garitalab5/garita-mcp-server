@@ -18,6 +18,11 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const { z } = require('zod');
 const { auditManifest, simulateApproval } = require('./lib/heuristics');
+const escudo = require('./lib/escudo');
+const { checkKnownVulnerabilities, ECOSISTEMAS_CONOCIDOS } = require('./lib/vulnerabilidades');
+const { detectToolRugPull } = require('./lib/rugpull');
+const { detectPoisonedConfigFiles } = require('./lib/config-poison');
+const { checkPackageAuthenticity, ECOSISTEMAS_SOPORTADOS: ECOSISTEMAS_SLOPSQUATTING } = require('./lib/slopsquatting');
 const licensing = require('./lib/licensing');
 const coingate = require('./lib/coingate');
 
@@ -107,6 +112,225 @@ function buildServer(apiKey) {
     }
   );
 
+  server.registerTool(
+    'detect_poisoned_tool_descriptions',
+    {
+      title: 'Detectar instrucciones escondidas en descripciones de herramientas (Garita Escudo)',
+      description:
+        'Analiza la(s) descripción(es) de una o más herramientas MCP en busca de instrucciones ocultas o inyectadas ' +
+        '("tool poisoning" / inyección de prompt): caracteres invisibles, esteganografía Unicode, homoglifos ' +
+        '(letras de otro alfabeto mezcladas), entidades HTML en capas, bloques de pseudo-instrucción escondidos ' +
+        '(<IMPORTANT>, comentarios), instrucciones para ocultar la acción al usuario, para manipular OTRA herramienta, ' +
+        'para redirigir/copiar datos a otro destino, o para decodificar y seguir un texto codificado. Devuelve un ' +
+        'puntaje de 0 a 100 y el detalle de cada señal encontrada, con el fragmento de texto donde apareció. ' +
+        'Es un chequeo distinto y complementario a audit_mcp_server (que revisa el esquema/anotaciones del manifiesto, ' +
+        'no el contenido semántico del texto) — úsalo antes de confiar en la descripción de una herramienta MCP nueva ' +
+        'o desconocida. Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        manifest: z
+          .record(z.string(), z.any())
+          .optional()
+          .describe('Manifiesto MCP { serverInfo, tools: [...] }, un arreglo de herramientas, o una sola herramienta { name, description }.'),
+        text: z
+          .string()
+          .optional()
+          .describe('Alternativa a "manifest": una descripción de herramienta suelta, en texto plano.')
+      }
+    },
+    async ({ manifest, text }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = escudo.auditToolDescriptions({ manifest, text });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'check_known_vulnerabilities',
+    {
+      title: 'Verificar vulnerabilidades conocidas de un paquete',
+      description:
+        'Revisa si un paquete de software (de npm, PyPI, Go, crates.io, Maven, RubyGems, y otros ecosistemas soportados por OSV.dev) ' +
+        'tiene vulnerabilidades ya conocidas y publicadas (CVEs y equivalentes), consultando la base de datos abierta OSV.dev ' +
+        '(agrega GitHub Advisory Database, PyPA, Go, npm, RustSec, entre otras). Devuelve cada vulnerabilidad encontrada con su ' +
+        'identificador, CVE oficial si existe, severidad, fecha de publicación y un link. Úsalo antes de confiar en un paquete ' +
+        'del que depende un servidor MCP o cualquier otro componente — un paquete puede pasar la auditoría del manifiesto y la ' +
+        'detección de descripciones envenenadas y aun así tener una falla de seguridad ya conocida en su propio código. ' +
+        'Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        ecosistema: z
+          .string()
+          .describe('Ecosistema del paquete. Comunes: ' + ECOSISTEMAS_CONOCIDOS.join(', ') + '. Se envía tal cual a OSV.dev.'),
+        nombre: z.string().describe('Nombre exacto del paquete tal como aparece en su registro (ej. "left-pad" en npm).'),
+        version: z
+          .string()
+          .optional()
+          .describe('Versión exacta a revisar. Si se omite, busca vulnerabilidades conocidas en cualquier versión del paquete.')
+      }
+    },
+    async ({ ecosistema, nombre, version }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = await checkKnownVulnerabilities({ ecosistema, nombre, version });
+      } catch (err) {
+        // A diferencia de las otras herramientas, esta depende de un
+        // servicio externo (OSV.dev) — si falla, el cliente no recibió
+        // ningún resultado real, así que se le devuelve el uso/crédito que
+        // ya se había descontado arriba (no es justo cobrarle por una
+        // falla de un tercero o de la red, fuera de su control).
+        await licensing.refundUse(apiKey, check.consumedFrom);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message, _nota: 'No se descontó ningún uso/crédito por este intento.' }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_tool_rug_pull',
+    {
+      title: 'Detectar redefinición de herramientas tras la aprobación (rug-pull)',
+      description:
+        'Compara dos versiones del manifiesto de un mismo servidor MCP — la que aprobaste/revisaste antes ("anterior") y la de ahora ("actual") — ' +
+        'y avisa si el texto de alguna herramienta ya aprobada cambió desde entonces. Detecta el patrón conocido como "MCP Tool Rug-Pull": una ' +
+        'herramienta se ve benigna al aprobarse, pero su descripción se redefine DESPUÉS (en una actualización, en la siguiente carga) para meter ' +
+        'una instrucción peligrosa. detect_poisoned_tool_descriptions revisa un manifiesto en un solo momento; esta herramienta revisa si algo ' +
+        'cambió desde la última vez — úsalas juntas. Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        anterior: z
+          .record(z.string(), z.any())
+          .describe('El manifiesto que aprobaste/revisaste la vez anterior: { serverInfo, tools: [...] } (mismo formato que audit_mcp_server).'),
+        actual: z
+          .record(z.string(), z.any())
+          .describe('El manifiesto actual del mismo servidor, para comparar contra "anterior".')
+      }
+    },
+    async ({ anterior, actual }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = detectToolRugPull({ anterior, actual });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_poisoned_config_files',
+    {
+      title: 'Detectar archivos de configuración/instrucciones envenenados',
+      description:
+        'Analiza archivos de configuración/instrucciones que un agente de código carga y confía DE INMEDIATO, sin ningún paso de ' +
+        'aprobación (AGENTS.md, CLAUDE.md, .cursorrules, archivos de "skills", y similares), en busca de instrucciones ocultas o ' +
+        'peligrosas. Reutiliza el mismo motor de detect_poisoned_tool_descriptions (Garita Escudo) — caracteres invisibles, ' +
+        'esteganografía Unicode, homoglifos, entidades HTML en capas, bloques de pseudo-instrucción escondidos, instrucciones de ' +
+        'ocultar la acción al usuario, de manipular OTRA herramienta, de redirigir datos, de decodificar y seguir texto codificado, ' +
+        'y el gatillo diferido tipo "rug-pull" — pero AJUSTADO a este género de archivo: el lenguaje de autoridad (IMPORTANTE, ' +
+        'CRÍTICO) no se penaliza aquí porque es normal y esperado en un archivo de instrucciones, y se agrega una regla nueva, ' +
+        '"filtración de credenciales", que no necesita ningún gatillo temporal — una instrucción de leer y exponer el contenido de ' +
+        'un archivo de credenciales/secretos se marca de inmediato, porque a diferencia de una herramienta MCP, un archivo de ' +
+        'instrucciones se confía sin pedir aprobación a nadie. Motivada por un caso real (2026): un archivo de reglas envenenado ' +
+        'exfiltró credenciales de AWS/Kubernetes/Terraform en menos de 2 minutos en una prueba controlada. Acepta uno o varios ' +
+        'archivos a la vez. Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        archivos: z
+          .array(z.object({
+            ruta: z.string().optional().describe('Nombre/ruta del archivo, solo para identificarlo en el reporte (ej. "AGENTS.md", ".cursor/rules").'),
+            contenido: z.string().describe('Contenido completo del archivo, en texto plano.')
+          }))
+          .optional()
+          .describe('Uno o más archivos a revisar a la vez: [{ ruta, contenido }, ...].'),
+        contenido: z
+          .string()
+          .optional()
+          .describe('Alternativa a "archivos": el contenido de un solo archivo suelto, en texto plano.'),
+        ruta: z
+          .string()
+          .optional()
+          .describe('Solo junto con "contenido": el nombre/ruta de ese archivo suelto.')
+      }
+    },
+    async ({ archivos, contenido, ruta }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = detectPoisonedConfigFiles({ archivos, contenido, ruta });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'check_package_authenticity',
+    {
+      title: 'Verificar autenticidad de un paquete (typosquatting / "slopsquatting")',
+      description:
+        'Revisa si un paquete (por ahora solo npm) tiene señales de ser un impostor recién publicado en vez de un paquete ' +
+        'legítimo: nombre casi idéntico a uno de los paquetes más populares combinado con poco historial propio ' +
+        '(typosquatting clásico), publicado hace muy poco con un número de versión inicial ya "maduro" como 35.x.y en vez ' +
+        'de 0.x/1.x (el patrón documentado en campañas reales de 2026 de "slopsquatting": nombres diseñados para parecerse ' +
+        'a los que un asistente de IA alucina al sugerir una dependencia), un script que se ejecuta solo al instalar ' +
+        '(postinstall/preinstall) en un paquete reciente, o ausencia total de repositorio/homepage/README. Si el paquete NO ' +
+        'existe en el registro, avisa que puede ser una alucinación del agente y del riesgo de que alguien lo registre ' +
+        'después con malware. Distinto y complementario a check_known_vulnerabilities: esa herramienta busca CVEs ya ' +
+        'publicados en un paquete probablemente legítimo; esta busca señales de que el paquete en sí es falso, aunque no ' +
+        'tenga ningún CVE todavía. Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        ecosistema: z
+          .string()
+          .describe('Ecosistema del paquete. Por ahora solo se soporta: ' + ECOSISTEMAS_SLOPSQUATTING.join(', ') + '.'),
+        nombre: z.string().describe('Nombre exacto del paquete tal como aparece en su registro (ej. "left-pad" en npm, o "@scope/paquete" para uno con alcance).')
+      }
+    },
+    async ({ ecosistema, nombre }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = await checkPackageAuthenticity({ ecosistema, nombre });
+      } catch (err) {
+        // Igual que check_known_vulnerabilities: si el registro de npm no
+        // respondió, el cliente no recibió ningún resultado real, así que
+        // se le devuelve el uso/crédito.
+        await licensing.refundUse(apiKey, check.consumedFrom);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message, _nota: 'No se descontó ningún uso/crédito por este intento.' }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
   return server;
 }
 
@@ -124,6 +348,7 @@ function publicBaseUrl(req) {
 app.get('/', (req, res) => {
   res.type('text/plain').send(
     'Garita MCP server — remote MCP endpoint en POST /mcp (requiere llave de acceso en el header Authorization).\n\n' +
+    'Herramientas MCP disponibles: audit_mcp_server, simulate_approval, detect_poisoned_tool_descriptions (Garita Escudo), check_known_vulnerabilities, detect_tool_rug_pull, detect_poisoned_config_files, check_package_authenticity.\n\n' +
     'Endpoints:\n' +
     '  POST /crear-llave              — consigue una llave de acceso gratis (' + licensing.DEFAULT_FREE_USES + ' usos de prueba)\n' +
     '  GET  /consultar-llave?apiKey=  — consulta cuántos usos gratis/créditos le quedan a una llave\n' +
