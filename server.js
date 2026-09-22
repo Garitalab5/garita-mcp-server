@@ -23,6 +23,8 @@ const { checkKnownVulnerabilities, ECOSISTEMAS_CONOCIDOS } = require('./lib/vuln
 const { detectToolRugPull } = require('./lib/rugpull');
 const { detectPoisonedConfigFiles } = require('./lib/config-poison');
 const { checkPackageAuthenticity, ECOSISTEMAS_SOPORTADOS: ECOSISTEMAS_SLOPSQUATTING } = require('./lib/slopsquatting');
+const { checkMemoryPoisoning, FUENTES_VALIDAS: FUENTES_MEMORIA } = require('./lib/memoria');
+const { checkSsrfRisk } = require('./lib/ssrf');
 const licensing = require('./lib/licensing');
 const coingate = require('./lib/coingate');
 
@@ -331,6 +333,91 @@ function buildServer(apiKey) {
     }
   );
 
+  server.registerTool(
+    'detect_memory_poisoning',
+    {
+      title: 'Detectar envenenamiento de memoria persistente',
+      description:
+        'Revisa un texto que un agente con memoria de largo plazo va a guardar (o que ya guardó) en busca de instrucciones ' +
+        'plantadas para activarse recién en una sesión futura, sin relación con la conversación donde se coló el texto. ' +
+        'Distinto de detect_poisoned_tool_descriptions (Garita Escudo): ese revisa la descripción de una HERRAMIENTA; este ' +
+        'revisa CONTENIDO que va hacia la memoria — una nota, un hecho guardado, un resumen automático de una conversación ' +
+        'vieja, o texto traído por otra herramienta (documento, página web, salida de una API). Detecta: instrucciones ' +
+        'condicionales tipo "si el usuario dice que sí, entonces..." (el método documentado del ataque real contra Gemini, ' +
+        'investigador Rehberger 2025, y el método MINJA de NeurIPS 2025 con más de 95% de éxito contra agentes en ' +
+        'producción), la combinación de "recordá esto para siempre" + "no se lo menciones al usuario" (casi nunca legítima ' +
+        'venga de donde venga), texto que se hace pasar por una instrucción del sistema o pide ignorar instrucciones ' +
+        'anteriores, instrucciones de enviar datos a un tercero la próxima vez que se recupere la memoria, etiquetas falsas ' +
+        'de sistema escondidas en el contenido, y texto que se dirige directamente al asistente por su nombre dentro de ' +
+        'contenido que debería ser pasivo (un documento, una página web). El campo "fuente" importa: un usuario pidiéndole ' +
+        'directamente al agente que recuerde algo es el uso normal del producto y se pondera distinto a lo mismo encontrado ' +
+        'dentro de un documento, un resumen automático o la salida de otra herramienta. Requiere una llave de acceso válida ' +
+        '(usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        texto: z.string().describe('El contenido que se va a guardar (o que ya está guardado) en la memoria de largo plazo del agente.'),
+        fuente: z
+          .string()
+          .optional()
+          .describe('De dónde viene el texto: ' + FUENTES_MEMORIA.join(', ') + '. Si no se especifica, se trata como no confiable por precaución.')
+      }
+    },
+    async ({ texto, fuente }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkMemoryPoisoning({ texto, fuente });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_ssrf_risk',
+    {
+      title: 'Detectar riesgo de SSRF (Server-Side Request Forgery) en una herramienta',
+      description:
+        'Analiza el código fuente de una herramienta MCP que hace una petición HTTP a una URL (traer una página, ' +
+        'llamar un webhook, un scraper) en busca de señales de riesgo de SSRF: una llamada HTTP (fetch, axios, ' +
+        'requests, urlopen, curl_exec, y equivalentes) cuya URL depende de una variable/entrada externa sin ninguna ' +
+        'validación reconocible cerca (lista de hosts permitidos, chequeo de IP privada, o una librería conocida ' +
+        'contra SSRF), una referencia directa a una IP privada/loopback o a un endpoint de metadata de la nube ' +
+        '(AWS/GCP/Azure — el patrón real usado para robar credenciales temporales de la nube) dentro de la propia ' +
+        'llamada, verificación de certificado TLS desactivada junto con una petición externa, seguir redirecciones ' +
+        'automáticamente sin revalidar el destino final, y ausencia de restricción de esquema (http/https) aunque ' +
+        'sí se valide la IP. Motivada por un censo real de 2026 sobre 9.695 servidores MCP escaneados: SSRF fue el ' +
+        '8.5% de los 4.982 problemas encontrados, dentro de un 60% de servidores con algún problema de seguridad. ' +
+        'Es un análisis estático por patrones de texto (no ejecuta el código) — mismo enfoque que ' +
+        'detect_poisoned_tool_descriptions. Requiere una llave de acceso válida (usos gratis o créditos) — ver ' +
+        'POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente de la función/herramienta que hace la petición HTTP, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkSsrfRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
   return server;
 }
 
@@ -348,7 +435,7 @@ function publicBaseUrl(req) {
 app.get('/', (req, res) => {
   res.type('text/plain').send(
     'Garita MCP server — remote MCP endpoint en POST /mcp (requiere llave de acceso en el header Authorization).\n\n' +
-    'Herramientas MCP disponibles: audit_mcp_server, simulate_approval, detect_poisoned_tool_descriptions (Garita Escudo), check_known_vulnerabilities, detect_tool_rug_pull, detect_poisoned_config_files, check_package_authenticity.\n\n' +
+    'Herramientas MCP disponibles: audit_mcp_server, simulate_approval, detect_poisoned_tool_descriptions (Garita Escudo), check_known_vulnerabilities, detect_tool_rug_pull, detect_poisoned_config_files, check_package_authenticity, detect_memory_poisoning, detect_ssrf_risk.\n\n' +
     'Endpoints:\n' +
     '  POST /crear-llave              — consigue una llave de acceso gratis (' + licensing.DEFAULT_FREE_USES + ' usos de prueba)\n' +
     '  GET  /consultar-llave?apiKey=  — consulta cuántos usos gratis/créditos le quedan a una llave\n' +
