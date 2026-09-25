@@ -25,6 +25,14 @@ const { detectPoisonedConfigFiles } = require('./lib/config-poison');
 const { checkPackageAuthenticity, ECOSISTEMAS_SOPORTADOS: ECOSISTEMAS_SLOPSQUATTING } = require('./lib/slopsquatting');
 const { checkMemoryPoisoning, FUENTES_VALIDAS: FUENTES_MEMORIA } = require('./lib/memoria');
 const { checkSsrfRisk } = require('./lib/ssrf');
+const { checkPathTraversalRisk } = require('./lib/traversal');
+const { checkCommandInjectionRisk } = require('./lib/command-injection');
+const { checkSqlInjectionRisk } = require('./lib/sql-injection');
+const { checkTokenPassthroughRisk } = require('./lib/token-passthrough');
+const { checkHardcodedSecretsRisk } = require('./lib/hardcoded-secrets');
+const { checkInsecureDeserializationRisk } = require('./lib/deserialization');
+const { checkToxicFlowRisk } = require('./lib/toxic-flows');
+const { checkSsTemplateInjectionRisk } = require('./lib/ssti');
 const licensing = require('./lib/licensing');
 const coingate = require('./lib/coingate');
 
@@ -418,6 +426,353 @@ function buildServer(apiKey) {
     }
   );
 
+  server.registerTool(
+    'detect_path_traversal_risk',
+    {
+      title: 'Detectar riesgo de path traversal / acceso arbitrario a archivos',
+      description:
+        'Analiza el código fuente de una herramienta MCP que lee, escribe o borra un archivo a partir de una ruta que le ' +
+        'pasa el agente (abrir un documento, guardar un adjunto, exportar un reporte) en busca de señales de riesgo de ' +
+        'path traversal: una operación de archivo (fs.readFile, fs.writeFile, open, shutil, send_file, y equivalentes) ' +
+        'cuya ruta depende de una variable/entrada externa sin ninguna validación reconocible contra secuencias de ' +
+        'escape ("../") cerca, una referencia directa a una ruta sensible del sistema (/etc/passwd, una llave SSH, un ' +
+        'archivo de credenciales) dentro de la propia operación, y ausencia de rechazo explícito de rutas absolutas ' +
+        '(aunque sí se filtren las secuencias "../", una ruta absoluta directa puede seguir escapando del directorio ' +
+        'permitido). Motivada por ser la categoría MÁS GRANDE de vulnerabilidades reales encontradas en un censo de 2026 ' +
+        'sobre 9.695 servidores MCP escaneados: acceso arbitrario a archivos fue el 17.7% de los 4.982 problemas ' +
+        'encontrados (880 casos) — más grande que denegación de servicio, inyección de comandos o SSRF. Caso real: ' +
+        'CVE-2026-40576 (CVSS 9.4, crítico) en un servidor MCP de Excel, donde su función de rutas permitía tanto rutas ' +
+        'absolutas como secuencias "../" sin resolverlas contra el directorio permitido. Es un análisis estático por ' +
+        'patrones de texto (no ejecuta el código) — mismo enfoque que detect_ssrf_risk. Requiere una llave de acceso ' +
+        'válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente de la función/herramienta que lee, escribe o borra un archivo, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkPathTraversalRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_command_injection_risk',
+    {
+      title: 'Detectar riesgo de inyección de comandos del sistema',
+      description:
+        'Analiza el código fuente de una herramienta MCP que ejecuta un comando del sistema operativo a partir de ' +
+        'una entrada que le pasa el agente (un nombre de archivo, un argumento de búsqueda, un parámetro cualquiera) ' +
+        'en busca de señales de riesgo de inyección de comandos: una llamada que SIEMPRE invoca una shell (exec, ' +
+        'execSync, os.system, os.popen, shell_exec, passthru, system, y equivalentes) con un argumento que depende ' +
+        'de una variable/entrada externa sin ninguna validación o escape reconocible cerca; una llamada que invoca ' +
+        'una shell solo CONDICIONALMENTE (spawn/execFile de Node, subprocess.run/Popen/call de Python) únicamente ' +
+        'cuando trae la opción shell:true/shell=True explícita — sin esa opción, un arreglo de argumentos se ejecuta ' +
+        'directamente sin pasar por ningún intérprete de shell y no se marca como riesgo; el patrón "descargar y ' +
+        'ejecutar" (curl/wget encadenado con una tubería directa a bash/sh); y ausencia de cualquier filtrado ' +
+        'reconocible de metacaracteres de shell (;, &&, |, `, $(), >, <) — una lista de comandos permitidos que solo ' +
+        'revisa el primer token del comando deja pasar cualquier cosa encadenada después de ese token, el patrón ' +
+        'exacto detrás de CVE-2026-55581/55582 (mcp-shell, CVSS hasta 8.6). Motivada por ser la SEGUNDA categoría más ' +
+        'grande de vulnerabilidades reales en un censo de 2026 sobre 9.695 servidores MCP escaneados: inyección de ' +
+        'comandos fue el 9.6% de los 4.982 problemas encontrados (476 casos) — solo detrás de acceso arbitrario a ' +
+        'archivos. También documentado en CVE-2025-6514 (CVSS 9.6, crítico) en mcp-remote. Es un análisis estático ' +
+        'por patrones de texto (no ejecuta el código) — mismo enfoque que detect_ssrf_risk y ' +
+        'detect_path_traversal_risk. Requiere una llave de acceso válida (usos gratis o créditos) — ver ' +
+        'POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente de la función/herramienta que ejecuta un comando del sistema, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkCommandInjectionRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_sql_injection_risk',
+    {
+      title: 'Detectar riesgo de inyección SQL',
+      description:
+        'Analiza el código fuente de una herramienta MCP que ejecuta una consulta SQL a partir de una entrada que le ' +
+        'pasa el agente (un nombre de usuario, un filtro de búsqueda, un identificador cualquiera) en busca de dos ' +
+        'señales de riesgo distintas: (1) el patrón clásico de inyección — una llamada que ejecuta SQL crudo ' +
+        '(.query, .execute, .raw, .exec_driver_sql, mysqli_query, y equivalentes) con la consulta armada por ' +
+        'concatenación o interpolación de una variable/entrada externa, en vez de un parámetro preparado, sin ' +
+        'ninguna función de escape reconocible cerca; y (2) un patrón propio de Garita motivado por un caso real: el ' +
+        'código (o su comentario/descripción) afirma que la herramienta es de "solo lectura", pero no hay ninguna ' +
+        'señal de que eso se aplique de verdad a nivel de base de datos — exactamente lo que Datadog Security Labs ' +
+        'encontró en el servidor MCP de referencia de Postgres de Anthropic, donde la restricción de "solo lectura" ' +
+        'vivía únicamente en el texto que lee el agente, no como un permiso real. Motivada por un censo real de 2026 ' +
+        'sobre 9.695 servidores MCP escaneados: inyección SQL fue el 4.2% de los 4.982 problemas encontrados (211 ' +
+        'casos). También documentado en CVE-2026-7206 (sqlite-mcp) y CVE-2025-66335 (Apache Doris MCP Server). Es un ' +
+        'análisis estático por patrones de texto (no ejecuta el código) — mismo enfoque que detect_ssrf_risk, ' +
+        'detect_path_traversal_risk y detect_command_injection_risk. Requiere una llave de acceso válida (usos ' +
+        'gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente de la función/herramienta que ejecuta una consulta SQL, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkSqlInjectionRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_token_passthrough_risk',
+    {
+      title: 'Detectar riesgo de reenvío de tokens OAuth (token passthrough)',
+      description:
+        'Analiza el código fuente de un middleware o herramienta MCP que maneja el token de autorización de quien ' +
+        'lo llama, en busca de señales del antipatrón "token passthrough" (confused deputy): (1) un middleware que ' +
+        'deja pasar la petición (next()/call_next()) sin ninguna verificación de autorización reconocible antes — ' +
+        'el patrón exacto detrás de CVE-2026-48039 (Meta Ads MCP, CVSS 9.1 CRÍTICO), donde un dispatch() reenviaba ' +
+        'peticiones sin validar el header Authorization y filtraba el token de larga duración del operador; (2) el ' +
+        'token de autorización de la petición ENTRANTE reenviado tal cual hacia otra llamada saliente, sin ' +
+        'revalidarlo ni reemitir uno propio — la especificación oficial de MCP prohíbe explícitamente que un ' +
+        'servidor acepte o reenvíe tokens que no fueron emitidos para él; (3) una verificación de JWT (jwt.verify/ ' +
+        'jwt.decode) que no valida el claim "audience"/"aud", con lo que nada distingue un token emitido para este ' +
+        'servidor de uno emitido para cualquier otro; y (4) un token colocado como parámetro de una URL en vez de ' +
+        'en un header, expuesto en logs y cabeceras Referer. El mismo patrón de reenvío sin validar también aparece ' +
+        'en CVE-2025-6514 (mcp-remote, CVSS 9.6) y CVE-2026-27826 (MCP Atlassian, CVSS 8.2). Es un análisis estático ' +
+        'por patrones de texto (no ejecuta el código) — mismo enfoque que detect_ssrf_risk, ' +
+        'detect_path_traversal_risk, detect_command_injection_risk y detect_sql_injection_risk. Requiere una llave ' +
+        'de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente del middleware/herramienta que maneja el token de autorización, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkTokenPassthroughRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_hardcoded_secrets_risk',
+    {
+      title: 'Detectar secretos embebidos en texto plano (credenciales hardcodeadas)',
+      description:
+        'Analiza código fuente o un archivo de configuración (incluido el bloque "env" de un servidor en la config ' +
+        'de mcpServers, o un archivo ".env") en busca de credenciales escritas tal cual en texto plano, en vez de ' +
+        'venir de una variable de entorno o un gestor de secretos: (1) cadenas con el formato reconocible de una ' +
+        'credencial real (llaves de OpenAI, AWS, GitHub, Slack, Google, o el encabezado de una llave privada PEM); ' +
+        '(2) una variable o llave de configuración con nombre de credencial (api_key, secret, token, password…) ' +
+        'con un valor literal en el propio código; (3) una línea al estilo ".env" que asigna un valor literal a una ' +
+        'variable de entorno cuyo nombre indica una credencial; y (4) una variable de entorno con un valor de ' +
+        'reserva ("fallback") hardcodeado — si la variable de entorno no está definida, el código sigue ' +
+        'funcionando igual con el secreto embebido, lo que anula el propósito de usar una variable de entorno. ' +
+        'Motivada por un reporte real de Hush Security (septiembre 2026) que escaneó ~82.000 archivos de ' +
+        'configuración MCP públicos en GitHub: el 12% de los espacios de credenciales tenía un secreto literal ' +
+        'embebido, el 53% de esos con acceso a nivel de toda la organización, y el 55% sin ningún formato de token ' +
+        'conocido. También documentado por Trend Micro (48% de 19.402 servidores MCP con almacenamiento inseguro ' +
+        'de secretos) y catalogado como MCP01 en el OWASP MCP Top 10. Reconoce placeholders/ejemplos comunes ' +
+        '("your-api-key-here", "changeme", la llave de ejemplo oficial de AWS) para no marcarlos como riesgo. Es un ' +
+        'análisis estático por patrones de texto (no ejecuta el código ni revisa el historial de git) — mismo ' +
+        'enfoque que detect_ssrf_risk, detect_path_traversal_risk, detect_command_injection_risk, ' +
+        'detect_sql_injection_risk y detect_token_passthrough_risk. Requiere una llave de acceso válida (usos ' +
+        'gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente o archivo de configuración a revisar, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python", "json", "env") — la detección ya cubre varios formatos a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkHardcodedSecretsRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_insecure_deserialization_risk',
+    {
+      title: 'Detectar riesgo de deserialización insegura',
+      description:
+        'Analiza el código fuente de una herramienta MCP que carga datos serializados (un modelo de IA, un archivo ' +
+        'de configuración, un objeto guardado) en busca de funciones que pueden terminar ejecutando código ' +
+        'arbitrario al momento de "leer" esos datos: (1) funciones que SIEMPRE reconstruyen objetos arbitrarios sin ' +
+        'ninguna variante segura (pickle.load/loads, cPickle, marshal.loads, dill.loads, joblib.load, y ' +
+        'unserialize() de PHP); (2) funciones que solo son peligrosas si no se usa su opción segura — yaml.load() ' +
+        'sin Loader=yaml.SafeLoader (o yaml.safe_load()), y torch.load() sin weights_only=True; y (3) un método ' +
+        '__reduce__/__reduce_ex__ que ejecuta un comando del sistema al reconstruirse — la firma clásica de un ' +
+        'payload malicioso de pickle. Motivada por CVE-2025-45146 (CVSS 9.8, CRÍTICO) en ModelCache, una librería ' +
+        'de caché para agentes/LLM que llamaba a torch.load() sobre bytes sin validar; y CVE-2025-32434 (CVSS 9.3), ' +
+        'que mostró que ni siquiera weights_only=True bastaba solo en versiones de PyTorch anteriores a la 2.6.0 — ' +
+        'por eso esta herramienta trata esa opción como una señal que reduce el riesgo, no como algo que lo ' +
+        'elimina. Reconoce un Unpickler restringido (RestrictedUnpickler/find_class) como señal de que ya se tomó ' +
+        'una precaución real. Es un análisis estático por patrones de texto (no ejecuta el código) — mismo enfoque ' +
+        'que detect_ssrf_risk, detect_path_traversal_risk, detect_command_injection_risk, detect_sql_injection_risk, ' +
+        'detect_token_passthrough_risk y detect_hardcoded_secrets_risk. Requiere una llave de acceso válida (usos ' +
+        'gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente de la función/herramienta que deserializa datos, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "python", "javascript", "php") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkInsecureDeserializationRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_toxic_flow_risk',
+    {
+      title: 'Detectar flujos tóxicos (combinaciones peligrosas de herramientas)',
+      description:
+        'A diferencia de las otras herramientas de detección (que analizan una función de código a la vez), esta ' +
+        'analiza el MANIFIESTO completo de un servidor MCP — igual que audit_mcp_server — buscando una COMBINACIÓN ' +
+        'peligrosa de capacidades: una herramienta que lee datos privados/sensibles (archivos locales, base de ' +
+        'datos, credenciales, repos privados) o contenido externo no confiable (correo, páginas web, issues/tickets ' +
+        'públicos, adjuntos), junto con una herramienta que puede enviar/publicar datos hacia afuera (correo, HTTP, ' +
+        'webhook, crear un comentario o issue público, subir un adjunto) sin ningún campo de confirmación EXIGIDO ' +
+        '(required) en su esquema de entrada — cada herramienta individual puede estar perfectamente descrita y no ' +
+        'tener ningún problema por sí sola; el riesgo está en la combinación ("confused deputy" / "lethal ' +
+        'trifecta"). Marca con más severidad el caso donde coinciden las TRES piezas completas: datos privados + ' +
+        'contenido no confiable + canal de salida. Motivada por CVE-2026-77255 (mcp-atlassian, CVSS 8.6, ' +
+        'septiembre 2026), EchoLeak/CVE-2025-32711 (Microsoft 365 Copilot, CVSS 9.3, primer exploit real de ' +
+        'inyección de prompt de cero clics) y el caso reportado por Invariant Labs en un servidor MCP de GitHub ' +
+        '("Toxic Flow Analysis"). Complementa a audit_mcp_server (puntaje general del manifiesto) y a ' +
+        'detect_poisoned_tool_descriptions (texto oculto dentro de UNA descripción) — úsala para revisar cómo ' +
+        'INTERACTÚAN entre sí las herramientas que un agente tendría disponibles a la vez. Requiere una llave de ' +
+        'acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        manifest: z
+          .record(z.string(), z.any())
+          .describe('El manifiesto del servidor MCP como objeto JSON: { serverInfo, tools: [...] } (mismo formato que audit_mcp_server), o directamente un arreglo de herramientas.')
+      }
+    },
+    async ({ manifest }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkToxicFlowRisk({ manifest });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_ssti_risk',
+    {
+      title: 'Detectar inyección en plantillas (SSTI)',
+      description:
+        'Analiza el código fuente de una herramienta que compila una plantilla (Jinja2, EJS, Handlebars, Pug, ' +
+        'Mustache, lodash, o un PromptTemplate de LangChain) en busca de una fuente de plantilla que no escribió ' +
+        'el desarrollador — una variable/entrada externa usada como el TEXTO de la plantilla, en vez de como un ' +
+        'dato que se rellena en una plantilla fija. La mayoría de estos motores permiten llamar métodos y recorrer ' +
+        'atributos de objetos desde dentro de la plantilla, así que una plantilla controlada por un atacante puede ' +
+        'terminar en ejecución arbitraria de código en el servidor (SSTI) — algo distinto de XSS y no cubierto por ' +
+        'ningún analizador de HTML. También detecta una falsa sensación de seguridad propia de Garita: el código ' +
+        'afirma estar protegido porque "escapa la salida" (autoescape=True, html.escape, MarkupSafe) — una defensa ' +
+        'real contra XSS pero irrelevante acá, porque la ejecución ocurre al COMPILAR la plantilla, antes de que ' +
+        'exista ninguna salida que escapar. Reconoce un entorno sandboxeado de Jinja2 (SandboxedEnvironment) como ' +
+        'una mitigación real. Motivada por CVE-2026-33154 (CVSS 8.1) en Dynaconf, una librería de configuración ' +
+        'muy usada por apps de IA/agentes; un aviso en Agenta-AI (plataforma de evaluación de LLMs) por SSTI vía ' +
+        'plantillas Jinja2 de evaluador personalizado; y un aviso en LangChain mismo, el framework de agentes más ' +
+        'usado, por inyección en plantillas de prompt vía acceso a atributos. Es un análisis estático por patrones ' +
+        'de texto (no ejecuta el código) — mismo enfoque que detect_sql_injection_risk, detect_command_injection_risk ' +
+        'y detect_insecure_deserialization_risk. Requiere una llave de acceso válida (usos gratis o créditos) — ' +
+        'ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente de la función/herramienta que compila una plantilla, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "python", "javascript") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkSsTemplateInjectionRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
   return server;
 }
 
@@ -435,7 +790,7 @@ function publicBaseUrl(req) {
 app.get('/', (req, res) => {
   res.type('text/plain').send(
     'Garita MCP server — remote MCP endpoint en POST /mcp (requiere llave de acceso en el header Authorization).\n\n' +
-    'Herramientas MCP disponibles: audit_mcp_server, simulate_approval, detect_poisoned_tool_descriptions (Garita Escudo), check_known_vulnerabilities, detect_tool_rug_pull, detect_poisoned_config_files, check_package_authenticity, detect_memory_poisoning, detect_ssrf_risk.\n\n' +
+    'Herramientas MCP disponibles: audit_mcp_server, simulate_approval, detect_poisoned_tool_descriptions (Garita Escudo), check_known_vulnerabilities, detect_tool_rug_pull, detect_poisoned_config_files, check_package_authenticity, detect_memory_poisoning, detect_ssrf_risk, detect_path_traversal_risk, detect_command_injection_risk, detect_sql_injection_risk, detect_token_passthrough_risk, detect_hardcoded_secrets_risk, detect_insecure_deserialization_risk, detect_toxic_flow_risk, detect_ssti_risk.\n\n' +
     'Endpoints:\n' +
     '  POST /crear-llave              — consigue una llave de acceso gratis (' + licensing.DEFAULT_FREE_USES + ' usos de prueba)\n' +
     '  GET  /consultar-llave?apiKey=  — consulta cuántos usos gratis/créditos le quedan a una llave\n' +
