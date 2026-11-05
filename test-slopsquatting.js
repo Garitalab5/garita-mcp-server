@@ -197,6 +197,19 @@ testAsync('control: nombre parecido a uno popular pero YA con historial largo ->
   });
 });
 
+testAsync('REGRESIÓN: nombre casi idéntico a uno popular, creado HOY, pero con varias versiones triviales publicadas en minutos -> posible_typosquat igual (evasión real encontrada y corregida)', async () => {
+  const manifest = manifiestoNpm({
+    nombre: 'loadash',
+    creadoHaceDias: 0.1,
+    versiones: { '1.0.0': {}, '1.0.1': {}, '1.0.2': {}, '1.0.3': {} }
+  });
+  await withMockFetch(() => jsonResponse(200, manifest), async ({ checkPackageAuthenticity }) => {
+    const r = await checkPackageAuthenticity({ ecosistema: 'npm', nombre: 'loadash' });
+    assert.ok(r.hallazgos.some(h => h.id === 'posible_typosquat'), 'el relleno de versiones no debería desactivar la regla cuando el paquete es tan nuevo');
+    assert.strictEqual(r.veredicto, 'Alto riesgo');
+  });
+});
+
 // ---------- regla 2: patrón de "slopsquatting" (versión inicial anómala) ----------
 
 testAsync('publicado hace días, una sola versión, y empieza en 35.x.y -> version_inicial_anomala, crítico', async () => {

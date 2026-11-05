@@ -83,6 +83,27 @@ test('valor de reserva con secreto hardcodeado (sin formato conocido) en process
   assert.strictEqual(r.veredicto, 'Riesgo moderado');
 });
 
+test('llave de Stripe en vivo (sk_live_..., formato con guion bajo) embebida -> alto riesgo', () => {
+  const r = checkHardcodedSecretsRisk({
+    codigo: `const stripeKey = "sk_live_AbCdEfGhIjKlMnOpQrStUvWx";`
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
+test('llave de Stripe de prueba (sk_test_...) embebida -> alto riesgo', () => {
+  const r = checkHardcodedSecretsRisk({
+    codigo: `const stripeKey = "sk_test_AbCdEfGhIjKlMnOpQrStUvWx";`
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
+test('variable con nombre "_KEY" a secas (sin prefijo api/secret/access/private) con valor literal -> alto riesgo', () => {
+  const r = checkHardcodedSecretsRisk({
+    codigo: `const STRIPE_KEY = "hunter2secretoproduccion123";`
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
 // ---------- Casos negativos (no deben marcar riesgo) ----------
 
 test('llave leída desde una variable de entorno (uso normal) -> aceptable', () => {
@@ -116,6 +137,27 @@ test('llave de ejemplo oficial de AWS (contiene "EXAMPLE") en la documentación 
 test('os.environ.get con nombre de variable, sin valor de reserva -> aceptable', () => {
   const r = checkHardcodedSecretsRisk({
     codigo: `token = os.environ.get('GITHUB_TOKEN')`
+  });
+  assert.strictEqual(r.veredicto, 'Aceptable');
+});
+
+test('variable "monkey" (contiene "key" como substring al final, sin ser una credencial) -> aceptable, no falso positivo', () => {
+  const r = checkHardcodedSecretsRisk({
+    codigo: `const monkey = "just a random string of chars here";`
+  });
+  assert.strictEqual(r.veredicto, 'Aceptable');
+});
+
+test('process.env.NODE_ENV || "production" (default benigno común, no es una credencial) -> aceptable', () => {
+  const r = checkHardcodedSecretsRisk({
+    codigo: `const env = process.env.NODE_ENV || 'production';`
+  });
+  assert.strictEqual(r.veredicto, 'Aceptable');
+});
+
+test('process.env.AWS_REGION || "us-east-1" (default benigno común, no es una credencial) -> aceptable', () => {
+  const r = checkHardcodedSecretsRisk({
+    codigo: `const region = process.env.AWS_REGION || 'us-east-1';`
   });
   assert.strictEqual(r.veredicto, 'Aceptable');
 });

@@ -159,6 +159,32 @@ test('texto vacío -> lanza error', () => {
   assert.throws(() => checkPathTraversalRisk({}));
 });
 
+test('decoy: path.normalize() sin relación con la variable real no debe validar nada -> alto riesgo', () => {
+  const r = checkPathTraversalRisk({
+    codigo: `
+      const rutaDecoy = path.normalize('./no-relacionado');
+      async function leerArchivo(req) {
+        const nombre = req.query.archivo;
+        const contenido = fs.readFileSync('/var/data/uploads/' + nombre);
+        return contenido;
+      }
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
+test('path.normalize() SÍ acoplado a un startsWith contra el directorio base -> aceptable', () => {
+  const r = checkPathTraversalRisk({
+    codigo: `
+      const nombre = req.query.archivo;
+      const rutaFinal = path.normalize(path.join(BASE_DIR, nombre));
+      if (!rutaFinal.startsWith(BASE_DIR)) throw new Error('fuera del directorio permitido');
+      const contenido = fs.readFileSync(rutaFinal);
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Aceptable');
+});
+
 test('template literal con interpolación de variable se trata como no confiable', () => {
   const r = checkPathTraversalRisk({
     codigo: 'const data = fs.readFileSync(`./uploads/${req.query.nombre}`);'

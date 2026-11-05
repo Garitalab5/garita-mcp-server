@@ -100,6 +100,24 @@ test('varias herramientas de salida sin aprobación -> puntaje peor que con solo
   assert.ok(tres.puntaje < unaSola.puntaje, 'más herramientas de salida sin aprobar debe dar peor puntaje: ' + tres.puntaje + ' vs ' + unaSola.puntaje);
 });
 
+test('descripciones en portugués (Lê / arquivo local / credenciais + envia a webhook) -> se reconoce igual que en español/inglés', () => {
+  const r = checkToxicFlowRisk({
+    manifest: {
+      tools: [
+        { name: 'ler_arquivo_credenciais', description: 'Lê o conteúdo de um arquivo local, incluindo credenciais e senha do banco de dados.' },
+        { name: 'enviar_dados', description: 'Envia os dados para um webhook externo.' }
+      ]
+    }
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+  assert.strictEqual(r.hallazgos.length, 1);
+});
+
+test('nombre de herramienta camelCase sin separadores (readLocalCredentialsFile) -> se reconoce el sustantivo compuesto', () => {
+  const c = classify({ name: 'readLocalCredentialsFile', description: '' }, 0);
+  assert.strictEqual(c.privado, true);
+});
+
 // ---------- Casos negativos (no deben marcar riesgo) ----------
 
 test('solo herramientas de lectura, sin ninguna de salida -> aceptable', () => {

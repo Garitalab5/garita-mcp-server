@@ -75,6 +75,49 @@ test('token capturado en variable y reenviado sin reemisión hacia otra API -> a
   assert.strictEqual(r.veredicto, 'Alto riesgo');
 });
 
+test('token reasignado a una variable nueva (alias) y reenviado sin reemisión -> alto riesgo', () => {
+  const r = checkTokenPassthroughRisk({
+    codigo: `
+      function handler(req, res) {
+        const incomingToken = req.headers.authorization;
+        const t2 = incomingToken;
+        return axios.get('https://api.terceros.com/data', {
+          headers: { Authorization: t2 }
+        });
+      }
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
+test('jwt.decode() sobre el token entrante, con "audience" en las opciones pero sin jwt.verify() en el código -> alto riesgo', () => {
+  const r = checkTokenPassthroughRisk({
+    codigo: `
+      function leerToken(req) {
+        const payload = jwt.decode(req.headers.authorization, { audience: 'mi-servidor-mcp' });
+        return payload;
+      }
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+  const tieneHallazgoDecode = r.hallazgos.some(h => h.etiqueta.indexOf('jwt.decode()') !== -1);
+  assert.ok(tieneHallazgoDecode);
+});
+
+test('jwt.decode() junto con jwt.verify() en el mismo código -> no se marca como decode sin verificar', () => {
+  const r = checkTokenPassthroughRisk({
+    codigo: `
+      function leerToken(token) {
+        const payload = jwt.decode(token);
+        const verificado = jwt.verify(token, process.env.JWT_SECRET, { audience: 'mi-servidor-mcp' });
+        return verificado;
+      }
+    `
+  });
+  const tieneHallazgoDecode = r.hallazgos.some(h => h.etiqueta.indexOf('jwt.decode()') !== -1);
+  assert.ok(!tieneHallazgoDecode);
+});
+
 test('combinación: middleware sin validar + JWT sin audience -> puntaje peor que cualquiera de los dos solos', () => {
   const r = checkTokenPassthroughRisk({
     codigo: `

@@ -155,6 +155,52 @@ test('ronda 5 - C (control): sin declarar destructiveHint en absoluto -> sigue i
   assert.ok(/no declara destructiveHint: true de forma válida/.test(textos));
 });
 
+// ---------- Ronda 6 (2026-09): ataques nuevos ----------
+
+// D. Homoglifo cirílico DENTRO del verbo destructivo evadía DESTRUCTIVE_VERBS
+// (a diferencia de la ronda 5-B, acá el caracter es visible, no invisible —
+// stripInvisibles no hace nada).
+test('ronda 6 - D: homoglifo cirílico dentro de "borra" (bоrra, "o" cirílica) -> retenido', () => {
+  const evil = { tool: 'accion_1234', description: 'Por favor bоrra el registro seleccionado ahora mismo.', arguments: {} };
+  const r = simulateApproval(evil);
+  assert.strictEqual(r.verdict, 'retenido');
+  assert.ok(/verbo de acción irreversible/.test(r.reasons.join(' ')));
+});
+
+test('ronda 6 - D (control): texto normal sin homoglifos y sin verbo destructivo -> auto-aprobado', () => {
+  const ok = { tool: 'accion_1234', description: 'Consulta el registro seleccionado.', arguments: {} };
+  const r = simulateApproval(ok);
+  assert.strictEqual(r.verdict, 'auto_aprobado');
+});
+
+test('ronda 6 - D: auditManifest también detecta el verbo destructivo con homoglifo en la descripción', () => {
+  const tool = { name: 'accion_1234', description: 'Por favor bоrra el registro seleccionado ahora mismo.' };
+  const r = auditManifest({ tools: [tool] });
+  const textos = r.tools[0].findings.map((f) => f.text).join(' ');
+  assert.ok(/acción irreversible/.test(textos));
+});
+
+// E. Monto en formato "punto de miles" (es-CO/europeo) como string evadía
+// el umbral porque solo se probaba la interpretación US (punto = decimal).
+test('ronda 6 - E: monto es-CO "1.500.000" (string, sin coma) -> se detecta como 1,500,000, retenido', () => {
+  const r = simulateApproval({ tool: 'accion_1234', description: 'Procesa el registro número 88 del lote actual.', arguments: { monto: '1.500.000', referencia: 'lote-88' } }, {}, 500);
+  assert.strictEqual(r.verdict, 'retenido');
+  assert.strictEqual(r.maxAmountDetected, 1500000);
+  assert.ok(/1.500.000|1\.500\.000/.test(r.reasons.join(' ')));
+});
+
+test('ronda 6 - E (control): formato US con coma de miles y decimal ("4,200.50") sigue interpretándose como antes', () => {
+  const r = simulateApproval({ tool: 'accion_1234', description: 'Procesa el pago.', arguments: { monto: '4,200.50' } }, {}, 500);
+  assert.strictEqual(r.verdict, 'retenido');
+  assert.strictEqual(r.maxAmountDetected, 4200.5);
+});
+
+test('ronda 6 - E (control): monto pequeño sin puntos de miles ("50") no se reinterpreta de más -> auto-aprobado', () => {
+  const r = simulateApproval({ tool: 'consultar_saldo', description: 'Consulta el saldo de la cuenta.', arguments: { monto: '50' } }, {}, 500);
+  assert.strictEqual(r.verdict, 'auto_aprobado');
+  assert.strictEqual(r.maxAmountDetected, 50);
+});
+
 console.log('');
 console.log(pass + ' pruebas OK, ' + fail + ' fallidas.');
 if (fail > 0) process.exit(1);

@@ -33,8 +33,22 @@ const { checkHardcodedSecretsRisk } = require('./lib/hardcoded-secrets');
 const { checkInsecureDeserializationRisk } = require('./lib/deserialization');
 const { checkToxicFlowRisk } = require('./lib/toxic-flows');
 const { checkSsTemplateInjectionRisk } = require('./lib/ssti');
+const { checkDynamicCodeRisk } = require('./lib/dynamic-code');
+const { checkDnsRebindingRisk } = require('./lib/dns-rebinding');
+const { checkMissingAuthRisk } = require('./lib/missing-auth');
+const { checkMcpStdioLaunchRisk } = require('./lib/mcp-stdio');
+const { checkRedosRisk } = require('./lib/redos');
+const { checkSessionHijackRisk } = require('./lib/session-hijack');
+const { checkOAuthAudienceConfusionRisk } = require('./lib/oauth-audience');
+const { checkUnboundedAllocationRisk } = require('./lib/unbounded-allocation');
+const { checkCrossClientLeakRisk } = require('./lib/cross-client-leak');
+const { checkSamplingHijackRisk } = require('./lib/sampling-hijack');
+const { checkOutputSchemaSsrfRisk } = require('./lib/output-schema-ssrf');
+const { checkExcessiveAgencyRisk } = require('./lib/excessive-agency');
+const { checkCallSpoofingRisk } = require('./lib/call-spoofing');
 const licensing = require('./lib/licensing');
 const coingate = require('./lib/coingate');
+const vigia = require('./lib/vigia');
 
 function extractApiKey(req) {
   const header = req.headers['authorization'] || '';
@@ -773,6 +787,532 @@ function buildServer(apiKey) {
     }
   );
 
+  server.registerTool(
+    'detect_dynamic_code_risk',
+    {
+      title: 'Escudo de Código Dinámico',
+      description:
+        'Analiza el código fuente de una herramienta/agente en busca de ejecución de código dinámico no confiable ' +
+        '(CWE-95): eval(), el constructor Function() de JS, exec() de Python, y las variantes del módulo "vm" de ' +
+        'Node (vm.runInContext/runInNewContext/runInThisContext) llamadas con un texto que NO escribió el ' +
+        'desarrollador — una variable, la respuesta de un modelo, un documento recuperado de un pipeline RAG, o un ' +
+        'parámetro de herramienta — en vez de un texto fijo. También detecta el patrón de "eval implícito": ' +
+        'setTimeout()/setInterval() llamado con un string en vez de una referencia a función. Detecta además una ' +
+        'falsa sensación de seguridad propia de Garita: usar la librería vm2 para "sandboxear" la ejecución no es ' +
+        'una mitigación real — vm2 está oficialmente deprecada desde 2023 tras varias fugas de sandbox críticas y ' +
+        'documentadas (CVE-2023-32314, CVE-2023-37903, CVE-2023-37466); reconoce isolated-vm (aislamiento real a ' +
+        'nivel de V8 Isolate) como mitigación genuina. Motivada por CVE-2026-26030 (CVSS 9.8, feb 2026) en Microsoft ' +
+        'Semantic Kernel: el filtro de un vector store (InMemoryVectorStore) interpolaba contenido recuperado de un ' +
+        'documento indexado — es decir, dato envenenado de un pipeline RAG, no una entrada directa del usuario — ' +
+        'directamente en una expresión evaluada con eval(), dando RCE completo en el proceso del agente. Es un ' +
+        'análisis estático por patrones de texto (no ejecuta el código) — mismo enfoque que detect_ssti_risk y ' +
+        'detect_command_injection_risk, y una clase de vulnerabilidad distinta de esta última: ahí se invoca una ' +
+        'shell externa (CWE-78), acá se evalúa código directamente dentro del propio intérprete/motor del agente. ' +
+        'Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente de la función/herramienta que evalúa código dinámicamente, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "python", "javascript") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkDynamicCodeRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_dns_rebinding_risk',
+    {
+      title: 'Escudo de Rebinding DNS',
+      description:
+        'Analiza el código que arma el transporte HTTP/SSE de un servidor MCP (el endpoint que un cliente usa para ' +
+        'hablarle por JSON-RPC) en busca de la ausencia de validación del header Origin (o Host) antes de procesar ' +
+        'peticiones entrantes. Sin esa validación, una página web maliciosa que el navegador de la víctima visita ' +
+        'puede hacer que el navegador hable directamente con ese servidor MCP — que suele correr en localhost o en ' +
+        'la red interna del usuario — como si fuera un cliente de confianza (ataque de "DNS rebinding"): el ' +
+        'atacante registra un dominio que primero resuelve a su propio servidor y luego cambia el DNS para que ' +
+        'resuelva a 127.0.0.1, y el navegador sigue tratando la página como el mismo origen mientras habla con el ' +
+        'servidor local de la víctima. Detecta además un malentendido documentado propio de Garita: creer que ' +
+        'bindear el servidor solo a localhost/127.0.0.1 ya protege — eso NO evita el rebinding; la única defensa ' +
+        'real es validar el header Origin contra una lista explícita de orígenes permitidos. Motivada por un ' +
+        'patrón repetido en 2026, encontrado de forma independiente en tres SDKs/implementaciones de MCP en tres ' +
+        'lenguajes distintos: CVE-2026-42559 (CVSS 8.8) en rmcp, el SDK oficial de Rust; CVE-2026-35568 en el SDK ' +
+        'de Java; y CVE-2026-59971 en mysql-mcp-server (Python) — todas por la misma causa raíz. Es un análisis ' +
+        'estático por patrones de texto sobre el código de configuración del transporte (no abre ningún puerto ni ' +
+        'ejecuta nada) — mismo enfoque que detect_ssrf_risk y detect_command_injection_risk. Requiere una llave de ' +
+        'acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código que arma el transporte HTTP/SSE del servidor MCP (constructor de transporte o registro de la ruta), en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "python", "javascript") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkDnsRebindingRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_missing_auth_risk',
+    {
+      title: 'Centinela de Autenticación',
+      description:
+        'Analiza el código que arma el transporte HTTP/SSE de un servidor MCP (el endpoint que un cliente usa para ' +
+        'hablarle por JSON-RPC — "/mcp", "/sse", "/messages") en busca de la ausencia de CUALQUIER verificación de ' +
+        'autenticación antes de despachar la petición (CWE-306): sin login, sin llave de API, sin token, cualquiera ' +
+        'que sepa la URL puede invocar las herramientas del servidor. Es distinto de validar el header Origin ' +
+        '(detect_dns_rebinding_risk): ahí el problema es DE DÓNDE viene la petición; aquí es que no se verifica ' +
+        'QUIÉN la hace, en absoluto. No es un caso aislado — es el patrón MÁS repetido entre los CVEs de MCP de ' +
+        '2026: CVE-2026-44895 (CVSS 9.1, crítico) en @yoda.digital/gitlab-mcp-server, donde el transporte SSE no ' +
+        'verificaba autenticación en ningún code path y además respondía con "Access-Control-Allow-Origin: *", ' +
+        'permitiendo a cualquier llamador no autenticado invocar las 86 herramientas de GitLab del servidor — ' +
+        'incluido borrar repositorios — usando el token de acceso personal del operador; el mismo patrón (CWE-306) ' +
+        'confirmado también en Azure MCP Server de Microsoft (CVE-2026-32211), deepseek-mcp-server ' +
+        '(CVE-2026-55605), NetLicensing-MCP (CVE-2026-54446), obsidian-web-mcp (CVE-2026-54618) y ' +
+        'mcp-documentation-server (CVE-2026-54504). Detecta además una regla propia de Garita: cuando además de ' +
+        'faltar la autenticación el CORS está completamente abierto ("Access-Control-Allow-Origin: *" o un ' +
+        'middleware cors() sin restringir origen), el riesgo es estrictamente peor — es exactamente la combinación ' +
+        'que hizo explotable a CVE-2026-44895 desde cualquier página web. Es un análisis estático por patrones de ' +
+        'texto (no ejecuta nada, no abre ningún puerto) — mismo enfoque que detect_dns_rebinding_risk y ' +
+        'detect_command_injection_risk. Requiere una llave de acceso válida (usos gratis o créditos) — ver POST ' +
+        '/crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código que arma el transporte HTTP/SSE del servidor MCP (constructor de transporte o registro de la ruta), en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "python", "javascript") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkMissingAuthRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_mcp_stdio_launch_risk',
+    {
+      title: 'Escudo de Lanzamiento MCP (STDIO)',
+      description:
+        'Analiza el código que arma la conexión de un CLIENTE MCP por transporte "stdio" (StdioClientTransport del ' +
+        'SDK de TypeScript, StdioServerParameters del SDK de Python) en busca de una falla de DISEÑO confirmada en ' +
+        'los cuatro SDKs oficiales de MCP (Python, TypeScript, Java, Rust) en 2026: el sistema operativo ejecuta el ' +
+        'campo "command" de inmediato al construir/conectar el transporte, ANTES de que exista ninguna validación ' +
+        'del protocolo MCP — "incluso cuando el comando malicioso falla en establecer una sesión MCP válida... el ' +
+        'comando ya se ejecutó" (Cloud Security Alliance). Si "command"/"args" viene de una entrada externa sin ' +
+        'restringirlo a una lista de lanzadores conocidos, cualquiera que controle ese campo ejecuta código ' +
+        'arbitrario. Detecta: (1) "command" dependiente de una entrada externa sin ninguna validación reconocible ' +
+        'contra una lista de lanzadores permitidos; (2) una variante más sutil ("brecha de rehidratación"): el ' +
+        'archivo sí valida en algún lado, pero el lanzamiento analizado viene de una configuración ya guardada/ ' +
+        'cargada antes, sin volver a validar al momento de lanzarla de verdad — el patrón exacto detrás de ' +
+        'CVE-2026-30623 (LiteLLM) antes de su parche; (3) un comando SÍ presente en una lista blanca razonable ' +
+        '(python, node, etc.) cuyos argumentos incluyen una bandera de ejecución directa de código (-c/-e/--eval) ' +
+        'con un valor que no es fijo — la lista blanca por nombre de binario no alcanza si el atacante solo elige ' +
+        'el código que ese binario ya permitido va a ejecutar; y (4) la falsa sensación de seguridad de asumir que ' +
+        'si el comando no resulta un servidor MCP válido "el protocolo fallaría" y ahí termina el problema. También ' +
+        'documentado en CVE-2026-22688 (Tencent WeKnora, CVSS 9.9): mismo patrón, expuesto en un endpoint "/test" ' +
+        'sin control de acceso de administrador. Distinto y complementario a detect_command_injection_risk: ese ' +
+        'cubre la inyección de comandos clásica vía una shell del sistema; este cubre el contrato específico de los ' +
+        'SDKs de MCP, donde el riesgo existe aunque no haya ninguna shell de por medio. Es un análisis estático por ' +
+        'patrones de texto (no ejecuta el código) — mismo enfoque que detect_command_injection_risk y ' +
+        'detect_missing_auth_risk. Requiere una llave de acceso válida (usos gratis o créditos) — ver POST ' +
+        '/crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código que arma la conexión stdio de un cliente MCP (construcción de StdioClientTransport/StdioServerParameters), en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios SDKs a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkMcpStdioLaunchRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_redos_risk',
+    {
+      title: 'Escudo Anti-ReDoS',
+      description:
+        'Analiza el código fuente de una herramienta/agente que compila o aplica una expresión regular, en busca ' +
+        'de (1) un patrón con forma de "cuantificador anidado" (backtracking catastrófico, ej. (a+)+, (\\s*\\w+)*, ' +
+        '(a|a)*) aplicado contra una entrada que no es un texto fijo, sin ningún tope de longitud ni motor con ' +
+        'timeout/librería segura (re2, safe-regex, recheck) reconocibles cerca — un solo string cuidadosamente ' +
+        'armado puede colgar el proceso del agente entero (ReDoS, CWE-1333); y (2) un regex compilado dinámicamente ' +
+        '(RegExp()/new RegExp()/re.compile()) a partir de una fuente que NO es un texto fijo que escribió el ' +
+        'desarrollador, sino una variable — quien llame a la herramienta puede inyectar directamente un patrón ' +
+        'catastrófico o cambiar por completo la lógica de validación. El mismo patrón detrás de CVE-2026-0621 ' +
+        '(CVSS 7.5). Es un análisis estático por patrones de texto (no ejecuta el código ni mide tiempos reales de ' +
+        'backtracking) — mismo enfoque que detect_dynamic_code_risk y detect_ssti_risk. Requiere una llave de ' +
+        'acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente que compila o aplica una expresión regular, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkRedosRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_session_hijack_risk',
+    {
+      title: 'Escudo de Secuestro de Sesión',
+      description:
+        'Analiza el código fuente que busca o genera sesiones de un cliente, en busca de (1) una sesión resuelta ' +
+        'SOLO por el identificador que trae la petición (sessions[id]/.get(id)/.findOne({id})), sin comparar ' +
+        'después ningún campo de dueño/principal (userId/owner/accountId) contra quien hace la petición ahora — ' +
+        'quien consiga ese ID hereda la sesión de otro cliente por completo (CWE-384); y (2) un identificador de ' +
+        'sesión generado con poca entropía (Math.random(), Date.now()/time.time() solo, o un contador incremental) ' +
+        'en vez de un generador criptográficamente seguro (crypto.randomBytes/randomUUID, secrets.token_hex), ' +
+        'adivinable por fuerza bruta. El mismo patrón detrás de CVE-2026-52869. Es un análisis estático por ' +
+        'patrones de texto (no ejecuta el código) — mismo enfoque que detect_missing_auth_risk y ' +
+        'detect_token_passthrough_risk. Requiere una llave de acceso válida (usos gratis o créditos) — ver POST ' +
+        '/crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente que busca o genera sesiones, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkSessionHijackRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_oauth_audience_confusion_risk',
+    {
+      title: 'Escudo de Confusión de Audiencia OAuth',
+      description:
+        'Analiza el código fuente del VERIFICADOR PROPIO de tokens OAuth/JWT de un servidor con más profundidad ' +
+        'que detect_token_passthrough_risk (que solo mira si "audience"/"aud" aparece cerca, una señal superficial): ' +
+        'detecta cuando esa validación SÍ existe pero está rota de forma sutil — (1) condicionada a una bandera de ' +
+        'configuración (config.checkAudience, options.strictMode) que puede estar desactivada; (2) su rama de "no ' +
+        'coincide" solo registra una advertencia en vez de rechazar la petición (throw/return/res.status); o (3) un ' +
+        'bloque catch() silencia el error que la librería ya lanzó al detectar la discrepancia — y también detecta ' +
+        '(4) la ausencia total de cualquier chequeo de audiencia en el verificador. En los tres primeros casos el ' +
+        'código "tiene" una validación que un lector apurado asumiría que funciona, pero que en la práctica deja ' +
+        'pasar un token emitido para otro servidor (confused deputy vía audiencia). El mismo patrón detrás de ' +
+        'CVE-2026-14541. Es un análisis estático por patrones de texto (no ejecuta el código) — mismo enfoque que ' +
+        'detect_token_passthrough_risk y detect_missing_auth_risk. Requiere una llave de acceso válida (usos gratis ' +
+        'o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente del verificador de tokens OAuth/JWT del servidor, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkOAuthAudienceConfusionRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_unbounded_allocation_risk',
+    {
+      title: 'Escudo de Asignación sin Límite',
+      description:
+        'Analiza el código fuente de un servidor/herramienta en busca de agotamiento de memoria/CPU (CWE-770): (1) ' +
+        'lectura completa de un cuerpo de petición o un archivo hacia memoria sin ningún tope de tamaño configurado ' +
+        '(sin "limit" en express.json()/bodyParser, sin chequeo de tamaño en la acumulación manual de un stream ' +
+        '"req.on(\'data\')", o sin fs.statSync() antes de leer un archivo con ruta no fija); y (2) una reserva de ' +
+        'array/buffer (new Array()/Buffer.alloc()), o un bucle, cuyo tamaño/cantidad de vueltas viene directamente ' +
+        'de una variable sin ningún tope (Math.min/comparación contra un máximo) antes — un solo mensaje o número ' +
+        'grande puede agotar la memoria o la CPU del proceso del agente. El mismo patrón detrás de CVE-2026-14539. ' +
+        'Es un análisis estático por patrones de texto (no ejecuta el código ni mide uso real de memoria) — mismo ' +
+        'enfoque que detect_dynamic_code_risk y detect_ssrf_risk. Requiere una llave de acceso válida (usos gratis ' +
+        'o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente que lee un cuerpo/archivo o reserva memoria/itera, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "python") — la detección ya cubre varios lenguajes a la vez, este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkUnboundedAllocationRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_cross_client_leak_risk',
+    {
+      title: 'Escudo de Fuga Entre Clientes',
+      description:
+        'Analiza el código fuente que arma el transporte HTTP/SSE de un servidor MCP en busca de estado compartido ' +
+        'sin aislamiento por sesión/cliente: (1) una sola instancia de McpServer/Server creada a nivel de módulo ' +
+        '(una vez al arrancar) que se conecta a un transporte nuevo dentro de cada handler de petición, en vez de ' +
+        'crear también una instancia nueva del servidor por cliente — las respuestas pueden mezclarse entre ' +
+        'clientes distintos; y (2) una variable mutable (let/var) a nivel de módulo escrita por un handler de ' +
+        'petición y leída dentro del callback de una herramienta registrada, sin que haga falta reutilizar ninguna ' +
+        'instancia completa de servidor. El mismo patrón detrás de CVE-2026-25536 (CVSS 7.1) en el propio SDK ' +
+        'oficial de TypeScript de MCP — "Context Injection and Over Sharing" del OWASP MCP Top 10. Es un análisis ' +
+        'estático por patrones de texto (no ejecuta el código) — mismo enfoque que detect_dns_rebinding_risk y ' +
+        'detect_missing_auth_risk. Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código fuente que arma el transporte HTTP/SSE de un servidor MCP, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "typescript") — este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkCrossClientLeakRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_sampling_hijack_risk',
+    {
+      title: 'Escudo de Secuestro de Sampling',
+      description:
+        'Analiza el código del lado cliente/host que maneja peticiones de sampling entrantes de un servidor MCP ' +
+        '(setRequestHandler sobre CreateMessageRequestSchema / "sampling/createMessage") en busca de: (1) ausencia ' +
+        'de cualquier paso reconocible de revisión/aprobación humana antes de cumplir la petición — lo que la ' +
+        'propia especificación de MCP recomienda exigir, y la puerta que un servidor malicioso usa para esconder ' +
+        'instrucciones que el modelo sigue sin que la persona note nada raro; (2) invocación encubierta de una ' +
+        'herramienta (callTool/executeTool) disparada desde ese mismo handler sin aprobación, el vector más grave; ' +
+        'y (3) ausencia de un tope de longitud/tokens (maxTokens/max_tokens), el vector de "robo de recursos". ' +
+        'Documentado en una investigación de Unit42 (Palo Alto Networks) y reportado de nuevo el 16 de octubre de ' +
+        '2026 contra una app de tipo copiloto de código. Es un análisis estático por patrones de texto (no ejecuta ' +
+        'el código) — mismo enfoque que detect_toxic_flow_risk. Requiere una llave de acceso válida (usos gratis o ' +
+        'créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código del lado cliente/host que maneja peticiones de sampling de un servidor MCP, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript", "typescript") — este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkSamplingHijackRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_output_schema_ssrf_risk',
+    {
+      title: 'Escudo de Esquema de Salida',
+      description:
+        'Analiza el código del lado CLIENTE que valida el outputSchema/inputSchema de una herramienta MCP en busca ' +
+        'de: (1) una validación con la librería jsonschema (Draft*Validator/validator_for/jsonschema.validate) ' +
+        'sobre un esquema que vino de un servidor MCP no confiable, sin ningún Registry/Resolver que restrinja la ' +
+        'resolución de referencias externas ($ref/$dynamicRef/$id) — un servidor malicioso puede forzar al cliente ' +
+        'a hacer una petición SSRF hacia una URL arbitraria (CWE-918); y (2) una llamada de red SÍNCRONA ' +
+        '(urllib.request.urlopen/requests.get-post-put-delete) dentro de una función "async def", sin "timeout" ' +
+        'ni delegarse a un hilo aparte — un solo endpoint que nunca responde congela el event loop entero del ' +
+        'proceso (denegación de servicio). El mismo patrón detrás de CVE-2026-116686 (CVSS 6.5) en el SDK oficial ' +
+        'de Python de MCP (paquete "mcp" en PyPI, versiones 1.10.0-1.29.1 y 2.0.0-2.1.1; parchado en 1.30.0/2.2.0). ' +
+        'Es un análisis estático por patrones de texto (no ejecuta el código) — mismo enfoque que detect_ssrf_risk ' +
+        'y detect_redos_risk. Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código del lado cliente que valida outputSchema/inputSchema de herramientas MCP, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "python") — este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkOutputSchemaSsrfRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_excessive_agency_risk',
+    {
+      title: 'Escudo de Agencia Excesiva',
+      description:
+        'Analiza el MANIFIESTO de un servidor MCP — igual que audit_mcp_server y detect_toxic_flow_risk — en busca ' +
+        'de "agencia excesiva" (OWASP LLM06): una herramienta cuyo nombre o descripción indica una acción ' +
+        'irreversible o de alto valor (transferir, retirar, pagar, borrar, eliminar, apagar) sin ningún campo de ' +
+        'confirmación EXIGIDO (required) en su esquema de entrada, y/o sin ningún tope máximo (maximum/' +
+        'exclusiveMaximum) en un campo de monto/cantidad — nada impide que una sola llamada mueva una cantidad ' +
+        'arbitrariamente grande ni que se ejecute sin que nada la revise antes. Motivada directamente por el ' +
+        'hackeo de Binance de octubre de 2026 (6.300 millones de dólares, el mayor robo cripto de la historia): ' +
+        'según el relato preliminar de Binance y el análisis de TRM Labs, un solo dispositivo/credencial ' +
+        'comprometido alcanzó un sistema con autoridad para autorizar retiros, y pudo ordenarlos sin ninguna ' +
+        'aprobación independiente ni tope por operación — el mismo patrón de diseño que esta herramienta busca en ' +
+        'el esquema de entrada de una herramienta MCP. Misma convención de "gatillo real vs. afirmación de texto" ' +
+        'que detect_toxic_flow_risk: una herramienta separada de "pedir aprobación" no cuenta como mitigación real. ' +
+        'Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        manifest: z
+          .record(z.string(), z.any())
+          .describe('El manifiesto del servidor MCP como objeto JSON: { serverInfo, tools: [...] } (mismo formato que audit_mcp_server), o directamente un arreglo de herramientas.')
+      }
+    },
+    async ({ manifest }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkExcessiveAgencyRisk({ manifest });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  server.registerTool(
+    'detect_call_spoofing_risk',
+    {
+      title: 'Escudo de Suplantación de Llamada',
+      description:
+        'Analiza el código de orquestación del lado del AGENTE (la capa que interpreta la respuesta del modelo) ' +
+        'en busca de la extracción de llamadas a herramientas desde el TEXTO LIBRE de la respuesta (una marca ' +
+        'como TOOL_CALL:, un bloque ```json, una etiqueta <tool_call>) en vez de leerlas únicamente del campo ' +
+        'ESTRUCTURADO y dedicado de la API (tool_calls/function_call/tool_use), que solo se llena cuando el ' +
+        'modelo invocó de verdad el mecanismo nativo de function-calling. Contenido que solo PARECE una llamada ' +
+        'a herramienta — incrustado en un documento, una página web o el resultado de otra herramienta que el ' +
+        'modelo simplemente "repite" — puede terminar ejecutado como si fuera real (ataque "Repeat-After-Me", ' +
+        'documentado en octubre de 2026 contra 6 frameworks de agentes de uso extendido: LangGraph, Microsoft ' +
+        'Agent Framework, Google ADK 2.0, AutoGen, AWS Strands y CrewAI). Es un análisis estático por patrones ' +
+        'de texto (no ejecuta el código) — mismo enfoque que detect_sampling_hijack_risk y detect_toxic_flow_risk. ' +
+        'Requiere una llave de acceso válida (usos gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código de orquestación del lado del agente que interpreta la respuesta del modelo, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "python") — este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkCallSpoofingRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
   return server;
 }
 
@@ -790,7 +1330,8 @@ function publicBaseUrl(req) {
 app.get('/', (req, res) => {
   res.type('text/plain').send(
     'Garita MCP server — remote MCP endpoint en POST /mcp (requiere llave de acceso en el header Authorization).\n\n' +
-    'Herramientas MCP disponibles: audit_mcp_server, simulate_approval, detect_poisoned_tool_descriptions (Garita Escudo), check_known_vulnerabilities, detect_tool_rug_pull, detect_poisoned_config_files, check_package_authenticity, detect_memory_poisoning, detect_ssrf_risk, detect_path_traversal_risk, detect_command_injection_risk, detect_sql_injection_risk, detect_token_passthrough_risk, detect_hardcoded_secrets_risk, detect_insecure_deserialization_risk, detect_toxic_flow_risk, detect_ssti_risk.\n\n' +
+    'Herramientas MCP disponibles: audit_mcp_server, simulate_approval, detect_poisoned_tool_descriptions (Garita Escudo), check_known_vulnerabilities, detect_tool_rug_pull, detect_poisoned_config_files, check_package_authenticity, detect_memory_poisoning, detect_ssrf_risk, detect_path_traversal_risk, detect_command_injection_risk, detect_sql_injection_risk, detect_token_passthrough_risk, detect_hardcoded_secrets_risk, detect_insecure_deserialization_risk, detect_toxic_flow_risk, detect_ssti_risk, detect_dynamic_code_risk, detect_dns_rebinding_risk, detect_missing_auth_risk, detect_mcp_stdio_launch_risk, detect_redos_risk, detect_session_hijack_risk, detect_oauth_audience_confusion_risk, detect_unbounded_allocation_risk, detect_cross_client_leak_risk, detect_sampling_hijack_risk, detect_output_schema_ssrf_risk, detect_excessive_agency_risk, detect_call_spoofing_risk.\n\n' +
+    'Vigía — agente especializado que decide por sí mismo cuáles de esas herramientas usar y devuelve un informe en español: POST /vigia/analizar.\n\n' +
     'Endpoints:\n' +
     '  POST /crear-llave              — consigue una llave de acceso gratis (' + licensing.DEFAULT_FREE_USES + ' usos de prueba)\n' +
     '  GET  /consultar-llave?apiKey=  — consulta cuántos usos gratis/créditos le quedan a una llave\n' +
@@ -798,7 +1339,8 @@ app.get('/', (req, res) => {
     '                                    ("empresarial" además quita el tope diario de 50 usos/día para siempre en esa llave)\n' +
     '  GET  /verificar-pago?orderId=  — revisa a mano si un pago ya se confirmó (respaldo, normalmente no hace falta)\n' +
     '  POST /coingate/webhook         — (uso interno de CoinGate, no lo llames a mano)\n' +
-    '  POST /mcp                      — endpoint MCP, ver README para conectarlo desde un agente\n'
+    '  POST /mcp                      — endpoint MCP, ver README para conectarlo desde un agente\n' +
+    '  POST /vigia/analizar           — { apiKey, mensaje } → el agente Vigía analiza y responde en español\n'
   );
 });
 
@@ -958,6 +1500,53 @@ app.get('/verificar-pago', async (req, res) => {
   } catch (err) {
     console.error('Error en /verificar-pago:', err);
     res.status(500).json({ error: true, message: 'No se pudo consultar el estado del pago: ' + err.message });
+  }
+});
+
+// ---------- Vigía (agente especializado, "Centinela Básico" / Escalón 1) ----------
+
+// A diferencia de /mcp (que expone las 20 herramientas sueltas para que un
+// agente/cliente MCP decida cuál llamar), este endpoint expone un agente
+// propio de Garita Labs que decide por sí mismo cuáles de esas 20
+// herramientas usar sobre lo que el cliente le mande, y devuelve un informe
+// ya combinado y explicado en español — pensado para alguien sin perfil
+// técnico de seguridad, o para integrarlo directo en un flujo (CI/CD, un
+// bot) sin tener que orquestar las 20 herramientas a mano.
+//
+// Requiere una llave de acceso de Garita Labs válida (igual que /mcp) — cada
+// herramienta real que Vigía decide llamar se cobra de la misma licencia.
+// Además requiere que el servidor tenga configurada la variable de entorno
+// ANTHROPIC_API_KEY (la propia, de Garita Labs — no la del cliente); si
+// falta, responde 503 en vez de 500, para distinguir "no configurado todavía"
+// de un error real.
+app.post('/vigia/analizar', async (req, res) => {
+  try {
+    const apiKey = extractApiKey(req) || String((req.body && req.body.apiKey) || '');
+    const record = await licensing.getKeyRecord(apiKey);
+    if (!record) {
+      return res.status(401).json({
+        error: true,
+        message: 'Necesitas una llave de acceso válida de Garita Labs. Crea una gratis en POST /crear-llave, y mándala en el header "Authorization: Bearer <llave>" o en el campo "apiKey" del cuerpo.'
+      });
+    }
+
+    const mensaje = String((req.body && req.body.mensaje) || '');
+    if (!mensaje.trim()) {
+      return res.status(400).json({ error: true, message: 'Debes enviar "mensaje" con el código, manifiesto o descripción que quieres que Vigía analice.' });
+    }
+    if (mensaje.length > 20000) {
+      return res.status(400).json({ error: true, message: 'El mensaje es demasiado largo (máximo 20,000 caracteres). Divídelo en partes más chicas.' });
+    }
+
+    const resultado = await vigia.analizar({ mensaje, apiKey });
+    res.json(resultado);
+  } catch (err) {
+    if (/ANTHROPIC_API_KEY/.test(err.message || '')) {
+      console.error('Vigía no está configurado:', err.message);
+      return res.status(503).json({ error: true, message: err.message });
+    }
+    console.error('Error en /vigia/analizar:', err);
+    res.status(500).json({ error: true, message: err.message || 'No se pudo completar el análisis.' });
   }
 });
 

@@ -1,0 +1,560 @@
+<title>Escudo Anti-ReDoS · Garita Labs</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --gutter: clamp(18px, 5vw, 56px);
+    --bg: #EEF0EA;
+    --surface: #FFFFFF;
+    --surface-alt: #E3E6DD;
+    --surface-sunken: #E7E9E1;
+    --border: #C7CCBE;
+    --ink: #16211C;
+    --ink-soft: #4C564C;
+    --ink-faint: #838C7C;
+    --accent: #33415C;
+    --accent-soft: rgba(51,65,92,0.10);
+    --ok: #2F6B4F;
+    --ok-soft: rgba(47,107,79,0.12);
+    --warn: #A9701C;
+    --warn-soft: rgba(169,112,28,0.14);
+    --critical: #9C3B2E;
+    --critical-soft: rgba(156,59,46,0.12);
+    --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+    --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg: #14180F; --surface: #1B2119; --surface-alt: #212820; --surface-sunken: #191F18; --border: #343E31;
+      --ink: #E9ECE3; --ink-soft: #AAB3A2; --ink-faint: #77816E;
+      --accent: #8FA4C9; --accent-soft: rgba(143,164,201,0.14);
+      --ok: #6FAE8B; --ok-soft: rgba(111,174,139,0.15);
+      --warn: #D9A857; --warn-soft: rgba(217,168,87,0.16);
+      --critical: #E17B67; --critical-soft: rgba(225,123,103,0.16);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg: #14180F; --surface: #1B2119; --surface-alt: #212820; --surface-sunken: #191F18; --border: #343E31;
+    --ink: #E9ECE3; --ink-soft: #AAB3A2; --ink-faint: #77816E;
+    --accent: #8FA4C9; --accent-soft: rgba(143,164,201,0.14);
+    --ok: #6FAE8B; --ok-soft: rgba(111,174,139,0.15);
+    --warn: #D9A857; --warn-soft: rgba(217,168,87,0.16);
+    --critical: #E17B67; --critical-soft: rgba(225,123,103,0.16);
+  }
+
+  *{ box-sizing: border-box; }
+  body{
+    margin:0; background: var(--bg); color: var(--ink);
+    font-family: var(--font-body); font-size: 15px; line-height:1.5;
+  }
+  h1,h2,h3{ font-family: var(--font-display); text-wrap: balance; margin:0; }
+  ::selection{ background: var(--accent-soft); }
+  a{ color: var(--accent); }
+
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding: 22px var(--gutter) 18px; flex-wrap: wrap;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; text-decoration:none; }
+  .brand svg{ width:24px; height:24px; color: var(--accent); flex:none; }
+  .brand-name{ font-family: var(--font-display); font-weight:700; font-size:1.35rem; letter-spacing:-0.01em; color: var(--ink); }
+  .brand-sub{ font-family: var(--font-display); font-weight:700; font-size:1.35rem; color: var(--ink-faint); }
+  .tagline{ font-size:.78rem; letter-spacing:.06em; text-transform:uppercase; color: var(--ink-faint); max-width: 34ch; text-align:right; }
+  @media (max-width:560px){ .tagline{ text-align:left; max-width:none; } }
+
+  main{ padding: 12px var(--gutter) 64px; max-width:1180px; margin:0 auto; }
+  .intro{ max-width:72ch; color: var(--ink-soft); font-size:.95rem; margin-bottom:22px; }
+  .intro strong{ color: var(--ink); font-weight:600; }
+  .intro code{ font-family: var(--font-mono); background: var(--surface-sunken); padding:1px 5px; border-radius:4px; font-size:.85em; }
+
+  .stamp-badge{
+    display:inline-flex; align-items:center; gap:6px; border:3px double currentColor;
+    border-radius:4px 14px 4px 14px; padding:6px 13px; transform:rotate(-3deg);
+    font-family:var(--font-display); font-weight:700; text-transform:uppercase; letter-spacing:.05em; font-size:.72rem;
+    white-space:nowrap; margin-bottom:22px;
+  }
+  .stamp-badge--ok{ color:var(--ok); }
+  .stamp-badge--warn{ color:var(--warn); }
+  .stamp-badge--pending{ color:var(--ink-faint); }
+
+  .grid{ display:grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); gap: 28px; align-items:start; }
+  @media (max-width: 860px){ .grid{ grid-template-columns: 1fr; } }
+
+  .card{ background: var(--surface); border:1px solid var(--border); border-radius:10px; padding: 20px 22px; }
+  .card + .card{ margin-top:18px; }
+
+  .field{ margin-bottom:14px; }
+  .field:last-child{ margin-bottom:0; }
+  .field label{ display:block; font-size:.72rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color: var(--ink-faint); margin-bottom:8px; }
+  .helper{ font-size:.8rem; color: var(--ink-faint); margin-top:10px; line-height:1.5; }
+  .helper code{ font-family: var(--font-mono); background: var(--surface-sunken); padding:1px 5px; border-radius:4px; font-size:.85em; }
+
+  textarea, select{
+    width:100%; background: var(--surface-sunken); color: var(--ink);
+    border:1px solid var(--border); border-radius:8px;
+    padding:11px 13px; font-family: var(--font-mono); font-size:.86rem;
+  }
+  textarea{ min-height:150px; resize:vertical; line-height:1.5; }
+  textarea:focus-visible, select:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+  .btn-primary{
+    appearance:none; border:none; background: var(--accent); color: var(--surface);
+    font: inherit; font-size:.85rem; font-weight:600; letter-spacing:.02em;
+    padding:11px 18px; border-radius:8px; cursor:pointer; width:100%; margin-top:4px;
+  }
+  .btn-primary:hover{ opacity:.92; }
+  .btn-primary:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .btn-primary:disabled{ opacity:.6; cursor:default; }
+
+  .examples{ display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+  .example-chip{
+    appearance:none; border:1px solid var(--border); background: var(--surface-alt); color: var(--ink-soft);
+    font: inherit; font-size:.74rem; font-family: var(--font-mono); padding:5px 10px; border-radius:20px; cursor:pointer;
+  }
+  .example-chip:hover{ color: var(--ink); border-color: var(--ink-faint); }
+
+  .output-empty, .output-error{
+    font-size:.88rem; padding:18px; border-radius:8px; color: var(--ink-faint);
+    background: var(--surface-sunken); border:1px dashed var(--border);
+  }
+  .output-error{ color: var(--critical); border-color: var(--critical); background: var(--critical-soft); }
+
+  .verdict-row{ display:flex; align-items:center; gap:22px; flex-wrap:wrap; margin-bottom:18px; }
+  .stamp{
+    display:inline-flex; flex-direction:column; align-items:center; gap:4px;
+    border:3px double currentColor; border-radius:4px 16px 4px 16px; padding:11px 22px; transform:rotate(-3deg); flex:none;
+  }
+  .stamp--ok{ color: var(--ok); }
+  .stamp--warn{ color: var(--warn); }
+  .stamp--critical{ color: var(--critical); }
+  .stamp__top{ display:flex; align-items:center; gap:7px; }
+  .stamp__icon{ width:19px; height:19px; flex:none; }
+  .stamp__icon svg{ width:100%; height:100%; display:block; }
+  .stamp__label{ font-family: var(--font-display); font-weight:700; text-transform:uppercase; letter-spacing:.05em; font-size:1rem; white-space:nowrap; }
+  .stamp__score{ font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size:1.4rem; letter-spacing:0; }
+
+  .verdict-info{ flex:1; min-width:220px; display:flex; flex-direction:column; gap:6px; }
+  .verdict-copy{ font-size:.88rem; color: var(--ink-soft); max-width:56ch; margin:0; }
+
+  .section-label{ display:block; font-size:.72rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color: var(--ink-faint); margin-bottom:8px; }
+
+  .finding{ display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--border); font-size:.86rem; }
+  .finding:last-child{ border-bottom:none; }
+  .finding__dot{ width:7px; height:7px; border-radius:50%; margin-top:6px; flex:none; }
+  .finding--ok .finding__dot{ background: var(--ok); }
+  .finding--warn .finding__dot{ background: var(--warn); }
+  .finding--critical .finding__dot{ background: var(--critical); }
+  .finding__text{ color: var(--ink-soft); }
+  .finding__snippet{ display:block; margin-top:4px; font-family: var(--font-mono); font-size:.78rem; color: var(--ink-faint); background: var(--surface-sunken); padding:6px 9px; border-radius:6px; word-break: break-word; white-space:pre-wrap; }
+  .finding__snippet mark{ background: var(--critical-soft); color: var(--critical); border-radius:3px; padding:0 2px; }
+
+  footer{
+    padding: 20px var(--gutter) calc(28px + env(safe-area-inset-bottom, 0px));
+    font-size:.76rem; color: var(--ink-faint); border-top:1px solid var(--border); max-width:1180px; margin:0 auto;
+  }
+</style>
+
+<div class="topbar">
+  <a class="brand" href="https://claude.ai/artifact/UxSu7diaMECDHzYVC5cKSp" target="_blank" rel="noopener">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M7.5 12c0-2 1.6-3.5 3.5-3.5s2 1.5 2 3.5-1.6 3.5-2 3.5c-1.9 0-3.5-1.5-3.5-3.5z"/>
+      <path d="M13 12c0-2 1.6-3.5 3.5-3.5S20 10 20 12s-1.6 3.5-3.5 3.5S13 14 13 12z" opacity="0"/>
+      <path d="M7.5 12c0-2 1.6-3.5 3.5-3.5"/>
+      <circle cx="16.5" cy="12" r="3.5"/>
+      <circle cx="7.5" cy="12" r="3.5"/>
+    </svg>
+    <span class="brand-sub">Garita Labs ·</span><span class="brand-name">&nbsp;Escudo Anti-ReDoS</span>
+  </a>
+  <div class="tagline">Detector de backtracking catastrófico en expresiones regulares</div>
+</div>
+
+<main>
+  <p class="intro">Una expresión regular con <strong>cuantificadores anidados</strong> (ej. <code>(a+)+</code>, <code>(\s*\w+)*</code>, <code>(a|a)*</code>) puede quedar atascada procesando un solo string durante segundos, minutos o para siempre: el motor de regex prueba exponencialmente muchas formas de agrupar la misma entrada antes de fallar. Si esa expresión se aplica sobre una entrada sin tope de longitud que viene de quien llama a la herramienta, un solo mensaje cuidadosamente armado basta para colgar el proceso entero — una denegación de servicio (ReDoS, CWE-1333) sin necesidad de ninguna otra vulnerabilidad. Motivado por <strong>CVE-2026-0621</strong> (CVSS 7.5): un regex de validación vulnerable, alcanzable sin autenticación, en un servidor/herramienta MCP ampliamente desplegado. Pegá acá el código que compila o aplica una expresión regular y revisá si le falta protección.</p>
+  <span class="stamp-badge stamp-badge--ok" id="pricing-badge">De uso libre</span>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <form id="redos-form">
+          <div class="field">
+            <label for="input-codigo">Código a analizar</label>
+            <textarea id="input-codigo" placeholder="Pegá acá el código que compila (RegExp/re.compile) o aplica (.test/.exec/.match/re.match) una expresión regular" spellcheck="false" required></textarea>
+          </div>
+          <button type="submit" class="btn-primary" id="btn-analizar">Analizar código</button>
+        </form>
+        <div class="examples">
+          <button type="button" class="example-chip" data-ex="function validar(texto) {&#10;  const patronNombre = /([a-zA-Z]+\s*)+$/;&#10;  return patronNombre.test(texto);&#10;}">Cuantificador anidado sin tope (patrón CVE-2026-0621)</button>
+          <button type="button" class="example-chip" data-ex="function validarFormato(input, patronTexto) {&#10;  const re = new RegExp(patronTexto);&#10;  return re.test(input);&#10;}">Regex compilado dinámicamente desde una variable</button>
+          <button type="button" class="example-chip" data-ex="def validar_email(valor):&#10;    patron = r'([\w.]+)+@([\w.]+)+'&#10;    return re.match(patron, valor)">Variante Python con re.match()</button>
+          <button type="button" class="example-chip" data-ex="function validarNombre(texto) {&#10;  if (texto.length > 200) return false;&#10;  const patronNombre = /([a-zA-Z]+\s*)+$/;&#10;  return patronNombre.test(texto);&#10;}">Con tope de longitud antes (uso normal)</button>
+        </div>
+        <p class="helper">Es un análisis estático por patrones de texto — no ejecuta nada ni mide tiempos reales de backtracking. Todo el análisis corre en tu navegador; el código que pegás acá no se envía a ningún lado.</p>
+      </div>
+    </div>
+    <div id="output"><div class="output-empty">Pegá el código y presioná "Analizar código".</div></div>
+  </div>
+</main>
+
+<footer>
+  No reemplaza un analizador de sintaxis (AST) real, un motor de verificación de regex (ej. "safe-regex") corriendo de verdad, ni una auditoría de seguridad formal — mismo enfoque y mismas limitaciones que el Escudo de Código Dinámico y el Escudo de Inyección SQL. CVE-2026-0621 documenta también la variante de regex compilado dinámicamente a partir de una fuente no controlada por el desarrollador, cubierta acá como hallazgo separado.
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, function(ch){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch];
+    });
+  }
+
+  // ---------- motor (puerto de lib/redos.js) ----------
+
+  function bucket(score){
+    if(score >= 80) return { label: 'Aceptable', sev: 'ok' };
+    if(score >= 50) return { label: 'Riesgo moderado', sev: 'warn' };
+    return { label: 'Alto riesgo', sev: 'critical' };
+  }
+
+  function contextSnippet(text, idx, len){
+    var start = Math.max(0, idx - 34);
+    var end = Math.min(text.length, idx + len + 34);
+    var prefix = start > 0 ? '…' : '';
+    var suffix = end < text.length ? '…' : '';
+    return prefix + text.slice(start, idx) + '[' + text.slice(idx, idx + len) + ']' + text.slice(idx + len, end) + suffix;
+  }
+
+  var REGEX_LITERAL = /(^|[=(:,;!&|?\n{}[\]\s*)])\/((?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n])+)\/([a-z]*)/g;
+  var REGEXP_CTOR = /\b(?:new\s+RegExp|RegExp|re\.compile)\s*\(/g;
+
+  var MITIGACION_TOPE_LONGITUD = /\.length\s*[<>]=?\s*\d+|\.slice\(\s*0\s*,\s*\d+\s*\)|\.substring\(\s*0\s*,\s*\d+\s*\)|\.slice\(\s*0\s*,\s*[A-Z_][A-Z0-9_]*\s*\)|\bMAX_(?:LEN|LENGTH|INPUT)\w*\b|\bmaxLength\b/i;
+  var MITIGACION_TIMEOUT_O_LIBRERIA = /\bre2\b|require\(['"]re2['"]\)|from\s+['"]re2['"]|safe-regex2?|\brecheck\b|require\(['"]safe-regex2?['"]\)|new\s+Worker\s*\(|\bworker_threads\b|\btimeout\s*:\s*\d+|vm\.(?:runInContext|runInNewContext|runInThisContext)\s*\([^)]{0,200}timeout/i;
+
+  function isLiteralStringArg(argWindow){
+    var trimmed = argWindow.replace(/^\s+/, '');
+    var q = trimmed[0];
+    if(q !== '"' && q !== "'" && q !== '`') return false;
+    var closeIdx = trimmed.indexOf(q, 1);
+    if(closeIdx === -1) return false;
+    var inner = trimmed.slice(1, closeIdx);
+    if(q === '`' && /\$\{/.test(inner)) return false;
+    var after = trimmed.slice(closeIdx + 1, closeIdx + 24).replace(/^\s+/, '');
+    if(after[0] === '+' || after[0] === '%') return false;
+    if(/^\.\s*format\s*\(/.test(after)) return false;
+    return true;
+  }
+
+  function hasCatastrophicShape(pattern){
+    if(typeof pattern !== 'string') return false;
+    for(var i = 0; i < pattern.length; i++){
+      if(pattern[i] !== '(') continue;
+      var depth = 1;
+      var j = i + 1;
+      var inner = '';
+      var inClass = false;
+      for(; j < pattern.length && depth > 0; j++){
+        var ch = pattern[j];
+        if(ch === '\\'){ inner += ch + (pattern[j + 1] || ''); j++; continue; }
+        if(ch === '[') inClass = true;
+        if(ch === ']') inClass = false;
+        if(!inClass){
+          if(ch === '('){ depth++; inner += ch; continue; }
+          else if(ch === ')'){ depth--; if(depth === 0) break; inner += ch; continue; }
+        }
+        inner += ch;
+      }
+      if(depth !== 0) continue;
+      var closeIdx = j;
+      var afterClose = pattern.slice(closeIdx + 1, closeIdx + 4);
+      var tieneCuantificadorAfuera = /^[+*]|^\{\d*,\}?/.test(afterClose);
+      if(!tieneCuantificadorAfuera) continue;
+      var innerSinEscapes = inner.replace(/\\./g, '');
+      var innerTieneCuantificador = /[+*]|\{\d*,\}/.test(innerSinEscapes);
+      var innerTieneAlternancia = /\|/.test(innerSinEscapes);
+      if(innerTieneCuantificador || innerTieneAlternancia) return true;
+    }
+    return false;
+  }
+
+  function splitTopLevelArgs(argsText){
+    var args = [];
+    var depth = 0;
+    var inString = null;
+    var current = '';
+    for(var i = 0; i < argsText.length; i++){
+      var ch = argsText[i];
+      if(inString){
+        current += ch;
+        if(ch === '\\'){ i++; if(i < argsText.length) current += argsText[i]; continue; }
+        if(ch === inString) inString = null;
+        continue;
+      }
+      if(ch === '"' || ch === "'" || ch === '`'){ inString = ch; current += ch; continue; }
+      if(ch === '(' || ch === '[' || ch === '{'){ depth++; current += ch; continue; }
+      if(ch === ')' || ch === ']' || ch === '}'){ depth--; current += ch; continue; }
+      if(ch === ',' && depth === 0){ args.push(current); current = ''; continue; }
+      current += ch;
+    }
+    if(current.trim() !== '' || args.length > 0) args.push(current);
+    return args;
+  }
+
+  function findMatchingParen(text, openParenIndex){
+    var depth = 0;
+    var inString = null;
+    for(var i = openParenIndex; i < text.length; i++){
+      var ch = text[i];
+      if(inString){
+        if(ch === '\\'){ i++; continue; }
+        if(ch === inString) inString = null;
+        continue;
+      }
+      if(ch === '"' || ch === "'" || ch === '`'){ inString = ch; continue; }
+      if(ch === '(') depth++;
+      else if(ch === ')'){ depth--; if(depth === 0) return i; }
+    }
+    return -1;
+  }
+
+  function buscarAplicacion(text, varName, afterIndex){
+    var windowEnd = Math.min(text.length, afterIndex + 800);
+    var win = text.slice(afterIndex, windowEnd);
+    var namePattern = varName ? varName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+
+    if(namePattern){
+      var reA = new RegExp('\\b' + namePattern + '\\s*\\.\\s*(?:test|exec)\\s*\\(');
+      var mA = reA.exec(win);
+      if(mA){
+        var argStart = mA.index + mA[0].length;
+        var argWindow = win.slice(argStart, argStart + 160);
+        return { aplicado: true, literal: isLiteralStringArg(argWindow) };
+      }
+      var reB = new RegExp('\\.\\s*match(?:All)?\\s*\\(\\s*' + namePattern + '\\s*\\)');
+      if(reB.test(win)){
+        return { aplicado: true, literal: false };
+      }
+    }
+
+    var reC = /^\s*\.\s*(?:test|exec)\s*\(/;
+    var mC = reC.exec(win);
+    if(mC){
+      var argStart2 = mC.index + mC[0].length;
+      var argWindow2 = win.slice(argStart2, argStart2 + 160);
+      return { aplicado: true, literal: isLiteralStringArg(argWindow2) };
+    }
+
+    return { aplicado: false, literal: null };
+  }
+
+  function findDefiniciones(text){
+    var definiciones = [];
+
+    var reLit = new RegExp(REGEX_LITERAL.source, REGEX_LITERAL.flags);
+    var m;
+    while((m = reLit.exec(text))){
+      var patIndex = m.index + m[1].length + 1;
+      var pattern = m[2];
+      var varMatch = /(?:const|let|var)\s+(\w+)\s*=\s*$/.exec(text.slice(Math.max(0, m.index - 60), m.index + m[1].length));
+      var varName = varMatch ? varMatch[1] : null;
+      definiciones.push({ kind: 'literal', index: patIndex, pattern: pattern, varName: varName, raw: '/' + pattern + '/' + m[3] });
+      if(m.index === reLit.lastIndex) reLit.lastIndex++;
+    }
+
+    var reCtor = new RegExp(REGEXP_CTOR.source, REGEXP_CTOR.flags);
+    while((m = reCtor.exec(text))){
+      var openParenIdx = m.index + m[0].length - 1;
+      var closeParenIdx = findMatchingParen(text, openParenIdx);
+      if(closeParenIdx === -1){ if(m.index === reCtor.lastIndex) reCtor.lastIndex++; continue; }
+      var argsList = splitTopLevelArgs(text.slice(openParenIdx + 1, closeParenIdx));
+      var firstArg = argsList.length > 0 ? argsList[0] : '';
+      var esPython = /re\.compile\s*\($/.test(m[0]);
+      var literalFirstArg = isLiteralStringArg(firstArg.replace(/^\s+/, ''));
+
+      if(!literalFirstArg){
+        definiciones.push({ kind: 'dinamico', index: m.index, pattern: null, varName: null, raw: m[0], esPython: esPython });
+        if(m.index === reCtor.lastIndex) reCtor.lastIndex++;
+        continue;
+      }
+
+      var innerLit = firstArg.replace(/^\s+['"`]/, '').replace(/['"`]\s*$/, '');
+      var varMatch2 = /(?:const|let|var)\s+(\w+)\s*=\s*$/.exec(text.slice(Math.max(0, m.index - 60), m.index));
+      var varMatch2Py = /(\w+)\s*=\s*$/.exec(text.slice(Math.max(0, m.index - 40), m.index));
+      var varName2 = varMatch2 ? varMatch2[1] : (esPython && varMatch2Py ? varMatch2Py[1] : null);
+      definiciones.push({ kind: 'literal', index: m.index, pattern: innerLit, varName: varName2, raw: m[0] + firstArg + ')', esPython: esPython });
+      if(m.index === reCtor.lastIndex) reCtor.lastIndex++;
+    }
+
+    return definiciones;
+  }
+
+  var RE_APPLY_PY = /\bre\.(?:match|search|fullmatch)\s*\(/g;
+
+  function findAplicacionesPython(text){
+    var out = [];
+    var re = new RegExp(RE_APPLY_PY.source, RE_APPLY_PY.flags);
+    var m;
+    while((m = re.exec(text))){
+      var openParenIdx = m.index + m[0].length - 1;
+      var closeParenIdx = findMatchingParen(text, openParenIdx);
+      if(closeParenIdx !== -1){
+        var argsList = splitTopLevelArgs(text.slice(openParenIdx + 1, closeParenIdx));
+        if(argsList.length >= 2){
+          var patronArg = argsList[0].replace(/^\s+/, '');
+          var sujetoArg = argsList[1].replace(/^\s+/, '');
+          var patronLiteral = isLiteralStringArg(patronArg);
+          var pattern = patronLiteral ? patronArg.replace(/^['"`]/, '').replace(/['"`]$/, '') : null;
+          out.push({
+            index: m.index,
+            pattern: pattern,
+            patronEsVariable: !patronLiteral,
+            sujetoEsLiteral: isLiteralStringArg(sujetoArg),
+            raw: text.slice(m.index, closeParenIdx + 1)
+          });
+        }
+      }
+      if(m.index === re.lastIndex) re.lastIndex++;
+    }
+    return out;
+  }
+
+  function checkRedosRisk(input){
+    input = input || {};
+    var codigo = input.codigo;
+    if(typeof codigo !== 'string' || !codigo.trim()){
+      throw { message: 'Debes enviar "codigo" (el código fuente de la herramienta que compila o aplica una expresión regular) con contenido.' };
+    }
+    var text = codigo;
+    var findings = [];
+    var deduction = 0;
+
+    var definiciones = findDefiniciones(text);
+    var regexDinamico = definiciones.filter(function(d){ return d.kind === 'dinamico'; });
+    var regexLiteral = definiciones.filter(function(d){ return d.kind === 'literal' && d.pattern !== null; });
+
+    var evilAplicadoSinMitigar = [];
+    var evilSinConfirmarAplicacion = [];
+
+    regexLiteral.forEach(function(d){
+      if(!hasCatastrophicShape(d.pattern)) return;
+      var inmediatoAntes = text.slice(Math.max(0, d.index - 40), d.index);
+      if(/\bRE2\s*\(\s*\/?\s*$/.test(inmediatoAntes)) return;
+      var aplicacion = buscarAplicacion(text, d.varName, d.index);
+      var ventanaContexto = text.slice(Math.max(0, d.index - 300), Math.min(text.length, d.index + 900));
+      var mitigado = MITIGACION_TOPE_LONGITUD.test(ventanaContexto) || MITIGACION_TIMEOUT_O_LIBRERIA.test(ventanaContexto);
+      if(aplicacion.aplicado && !aplicacion.literal && !mitigado){
+        evilAplicadoSinMitigar.push(d);
+      } else if(!aplicacion.aplicado){
+        evilSinConfirmarAplicacion.push(d);
+      }
+    });
+
+    var aplicacionesPy = findAplicacionesPython(text);
+    aplicacionesPy.forEach(function(a){
+      if(!a.pattern || !hasCatastrophicShape(a.pattern)) return;
+      var ventanaContexto = text.slice(Math.max(0, a.index - 300), a.index);
+      var mitigado = MITIGACION_TOPE_LONGITUD.test(ventanaContexto) || MITIGACION_TIMEOUT_O_LIBRERIA.test(ventanaContexto);
+      if(!a.sujetoEsLiteral && !mitigado){
+        evilAplicadoSinMitigar.push({ index: a.index, pattern: a.pattern, raw: a.raw });
+      }
+    });
+
+    if(evilAplicadoSinMitigar.length > 0){
+      var ded1 = 55 + Math.min(20, (evilAplicadoSinMitigar.length - 1) * 10);
+      deduction += ded1;
+      findings.push({
+        sev: 'critical',
+        label: 'Expresión regular con forma de "cuantificador anidado" (backtracking catastrófico, ej. (a+)+, (\\s*\\w+)*, (a|a)*) aplicada contra una entrada que no es un texto fijo — ni un tope de longitud ni un motor con timeout/librería segura (re2, safe-regex, recheck) reconocibles cerca — el mismo patrón detrás de CVE-2026-0621 (CVSS 7.5): un solo string cuidadosamente armado puede colgar el proceso del agente entero (ReDoS, CWE-1333)',
+        snippet: contextSnippet(text, evilAplicadoSinMitigar[0].index, Math.min(40, (evilAplicadoSinMitigar[0].raw || evilAplicadoSinMitigar[0].pattern || '').length))
+      });
+    }
+
+    if(regexDinamico.length > 0){
+      var ded2 = 55 + Math.min(20, (regexDinamico.length - 1) * 10);
+      deduction += ded2;
+      findings.push({
+        sev: 'critical',
+        label: 'Un regex se compila (RegExp()/new RegExp()/re.compile()) a partir de una fuente que NO es un texto fijo que escribió el desarrollador, sino una variable — quien llame a la herramienta no solo elige la entrada a validar, sino el PROPIO PATRÓN, pudiendo inyectar directamente una forma catastrófica (ReDoS) o cambiar por completo la lógica de validación; variante documentada también en CVE-2026-0621',
+        snippet: contextSnippet(text, regexDinamico[0].index, regexDinamico[0].raw.length)
+      });
+    }
+
+    if(evilAplicadoSinMitigar.length === 0 && evilSinConfirmarAplicacion.length > 0){
+      deduction += 25;
+      findings.push({
+        sev: 'warn',
+        label: 'Se definió una expresión regular con forma de cuantificador anidado (potencialmente catastrófica), pero en este fragmento no se pudo confirmar dónde o contra qué entrada se aplica — conviene revisar manualmente que nunca reciba un texto externo sin tope de longitud',
+        snippet: contextSnippet(text, evilSinConfirmarAplicacion[0].index, Math.min(40, evilSinConfirmarAplicacion[0].pattern.length))
+      });
+    }
+
+    if(findings.length === 0){
+      findings.push({ sev: 'ok', label: 'No se encontró ninguna expresión regular con forma de cuantificador anidado aplicada sin mitigar contra una entrada variable, ni ningún regex compilado dinámicamente a partir de una fuente no literal.', snippet: null });
+    }
+
+    var score = Math.max(0, Math.min(100, 100 - deduction));
+    var b = bucket(score);
+
+    return {
+      puntaje: score, veredicto: b.label,
+      resumen: 'Se encontraron ' + regexLiteral.length + ' expresión(es) regular(es) literal(es) analizada(s) (' + evilAplicadoSinMitigar.length + ' con forma catastrófica aplicada sin mitigar) y ' + regexDinamico.length + ' regex compilado(s) dinámicamente a partir de una fuente no literal.',
+      hallazgos: findings
+    };
+  }
+
+  // ---------- interfaz ----------
+
+  var STAMP_ICONS = {
+    ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.4l2.7 2.7L16.4 9"/></svg>',
+    warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.3l8.7 15H3.3z"/><line x1="12" y1="10" x2="12" y2="14.3"/><circle cx="12" cy="17.1" r=".2" fill="currentColor"/></svg>',
+    critical: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.8 3.5h8.4l4.3 4.3v8.4l-4.3 4.3H7.8l-4.3-4.3V7.8z"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
+  };
+
+  function renderStamp(sev, label, score){
+    return '<div class="stamp stamp--' + sev + '">'
+      + '<span class="stamp__top"><span class="stamp__icon">' + STAMP_ICONS[sev] + '</span><span class="stamp__label">' + label + '</span></span>'
+      + (score !== undefined ? '<span class="stamp__score">' + score + '/100</span>' : '')
+      + '</div>';
+  }
+
+  function findingRow(f){
+    var snippet = f.snippet ? '<span class="finding__snippet">' + escapeHtml(f.snippet).replace(/\[([^\]]*)\]/, '<mark>$1</mark>') + '</span>' : '';
+    return '<div class="finding finding--' + f.sev + '"><span class="finding__dot"></span><span class="finding__text">' + escapeHtml(f.label) + snippet + '</span></div>';
+  }
+
+  function handleSubmit(ev){
+    ev.preventDefault();
+    var codigo = document.getElementById('input-codigo').value;
+    var out = document.getElementById('output');
+
+    try{
+      var r = checkRedosRisk({ codigo: codigo });
+      var html = '<div class="card">';
+      html += '<div class="verdict-row">' + renderStamp(r.veredicto === 'Aceptable' ? 'ok' : (r.veredicto === 'Riesgo moderado' ? 'warn' : 'critical'), r.veredicto, r.puntaje) + '<div class="verdict-info"><p class="verdict-copy">' + escapeHtml(r.resumen) + '</p></div></div>';
+      html += '<span class="section-label">Hallazgos</span>';
+      html += r.hallazgos.map(findingRow).join('');
+      html += '</div>';
+      out.innerHTML = html;
+    } catch(err){
+      out.innerHTML = '<div class="output-error">' + escapeHtml((err && err.message) || String(err)) + '</div>';
+    }
+  }
+
+  function init(){
+    document.getElementById('redos-form').addEventListener('submit', handleSubmit);
+    document.querySelectorAll('.example-chip').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        document.getElementById('input-codigo').value = btn.getAttribute('data-ex');
+        document.getElementById('redos-form').dispatchEvent(new Event('submit', { cancelable: true }));
+      });
+    });
+  }
+
+  if(window.claude && window.claude.hot && window.claude.hot.ready){
+    window.claude.hot.ready(function(){ init(); });
+  } else {
+    init();
+  }
+})();
+</script>

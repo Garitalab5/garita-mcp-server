@@ -103,6 +103,28 @@ function render(plantilla, datos) {
   assert.strictEqual(r.veredicto, 'Alto riesgo');
 });
 
+test('concatenación implícita de literales adyacentes de Python (dos strings pegados sin operador) -> alto riesgo', () => {
+  const r = checkSsTemplateInjectionRisk({
+    codigo: `
+def render(tool_input):
+    tmpl = Template("Hola " f"{tool_input}, tenés mensajes nuevos.")
+    return tmpl.render()
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
+test('PromptTemplate(input_variables=extract_vars(x), template=x) — llamada a función ANTES de template= -> alto riesgo', () => {
+  const r = checkSsTemplateInjectionRisk({
+    codigo: `
+def build_prompt(x):
+    prompt = PromptTemplate(input_variables=extract_vars(x), template=x)
+    return prompt
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
 test('afirmar que "escapar la salida" (autoescape) protege, sin sandbox -> hallazgo adicional y peor puntaje', () => {
   const sinClaim = checkSsTemplateInjectionRisk({
     codigo: `

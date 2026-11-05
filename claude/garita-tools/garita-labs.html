@@ -1,0 +1,867 @@
+<title>Garita Labs</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,760;1,9..144,500;1,9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --gutter: clamp(20px, 6vw, 72px);
+    --paper: #EEF0EA;
+    --surface: #FFFFFF;
+    --surface-sunken: #E7E9E1;
+    --line: #C7CCBE;
+    --ink: #16211C;
+    --ink-soft: #4C564C;
+    --ink-faint: #838C7C;
+    --accent: #33415C;
+    --ok: #2F6B4F;
+    --warn: #A9701C;
+    --critical: #9C3B2E;
+    /* Fixed brand tokens: the navy band is a deliberate single world that does
+       NOT swap with viewer theme — --accent is tuned per-theme for small
+       text/icon use, not as a large field. */
+    --hero-bg: #2A3649;
+    --hero-bg-deep: #1B2333;
+    --hero-fg: #F1F2EA;
+    --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+    --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper: #14180F; --surface:#1B2119; --surface-sunken:#191F18; --line:#343E31;
+      --ink:#E9ECE3; --ink-soft:#AAB3A2; --ink-faint:#77816E;
+      --accent:#8FA4C9; --warn:#D9A857;
+      --ok:#6FAE8B; --critical:#E17B67;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper: #14180F; --surface:#1B2119; --surface-sunken:#191F18; --line:#343E31;
+    --ink:#E9ECE3; --ink-soft:#AAB3A2; --ink-faint:#77816E;
+    --accent:#8FA4C9; --warn:#D9A857;
+    --ok:#6FAE8B; --critical:#E17B67;
+  }
+
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; color:var(--ink); font-family:var(--font-body); line-height:1.55;
+    background-color:var(--paper);
+    background-image: repeating-linear-gradient(to bottom, transparent 0 27px, color-mix(in srgb, var(--line) 55%, transparent) 27px 28px);
+  }
+  h1,h2,h3{ font-family:var(--font-display); text-wrap:balance; margin:0; }
+  p{ margin:0; }
+  a{ color:inherit; }
+  ::selection{ background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+  nav.top{
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding: 18px var(--gutter); position:relative; z-index:2;
+  }
+  .wordmark{ display:flex; align-items:center; gap:9px; font-family:var(--font-display); font-weight:700; font-size:1.15rem; letter-spacing:-0.01em; }
+  .wordmark svg{ width:21px; height:21px; color:var(--accent); flex:none; }
+  .navlinks{ display:flex; gap:clamp(14px,3vw,30px); font-size:.82rem; font-weight:500; }
+  .navlinks a{ text-decoration:none; color:var(--ink-soft); }
+  .navlinks a:hover{ color:var(--ink); }
+  .navlinks a:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; border-radius:2px; }
+
+  /* ---------- NAVY BAND (shared by hero + stats) ---------- */
+  .navy-band{
+    background: var(--hero-bg); color: var(--hero-fg);
+    position:relative; overflow:hidden;
+  }
+  .navy-band::before{
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background-image: repeating-linear-gradient(135deg, var(--hero-fg) 0 2px, transparent 2px 26px);
+    opacity:.06;
+  }
+  .navy-band > *{ position:relative; z-index:1; }
+
+  /* ---------- HERO ---------- */
+  .hero{ padding: clamp(48px,9vw,96px) var(--gutter) clamp(56px,10vw,108px); }
+  .hero-inner{ max-width:1100px; margin:0 auto; }
+  /* One pivot post + control box + striped arm — a raised boom barrier
+     doesn't touch anything on its far side, so there's no second post. */
+  .gate{ position:relative; height:118px; width:300px; margin-bottom:30px; }
+  .gate-ground{ position:absolute; left:0; bottom:0; width:150px; height:2px; background:var(--hero-fg); opacity:.35; }
+  .gate-post{ position:absolute; left:14px; bottom:0; width:9px; height:78px; background:var(--hero-fg); border-radius:2px; opacity:.95; }
+  .gate-box{ position:absolute; left:2px; bottom:70px; width:32px; height:22px; background:var(--hero-fg); border-radius:3px; opacity:.95; }
+  .gate-arm{
+    position:absolute; left:18px; bottom:81px; width:230px; height:13px; border-radius:3px;
+    background-image: repeating-linear-gradient(135deg, var(--hero-fg) 0 15px, var(--hero-bg-deep) 15px 30px);
+    transform-origin: 0% 50%; transform: rotate(0deg);
+    box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  }
+  .gate.is-open .gate-arm{ transform: rotate(-68deg); }
+  @media (prefers-reduced-motion: no-preference){
+    .gate-arm{ transition: transform 1.1s cubic-bezier(.22,1,.36,1) .15s; }
+    .hero-copy{ animation: rise .8s cubic-bezier(.22,1,.36,1) .35s both; }
+    @keyframes rise{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:none; } }
+  }
+
+  .eyebrow{
+    font-family:var(--font-mono); font-size:.72rem; font-weight:500; letter-spacing:.12em; text-transform:uppercase;
+    opacity:.75; margin-bottom:14px; display:block;
+  }
+  .hero h1{ font-size:clamp(3rem, 8vw, 5.6rem); font-weight:700; letter-spacing:-0.015em; line-height:.98; }
+  .hero .sub{ font-size:clamp(1.05rem, 1.8vw, 1.3rem); max-width:54ch; margin-top:24px; opacity:.92; line-height:1.6; }
+  .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-top:36px; }
+  .btn{
+    font-family:var(--font-body); font-size:.88rem; font-weight:600; padding:13px 24px; border-radius:7px;
+    text-decoration:none; display:inline-flex; align-items:center; gap:8px; border:1px solid transparent;
+  }
+  .btn--primary{ background:var(--hero-fg); color:var(--hero-bg-deep); }
+  .btn--primary:hover{ opacity:.9; }
+  .btn--ghost{ border-color: color-mix(in srgb, var(--hero-fg) 45%, transparent); color:var(--hero-fg); }
+  .btn--ghost:hover{ background: color-mix(in srgb, var(--hero-fg) 12%, transparent); }
+  .btn:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; }
+  .navy-band .btn:focus-visible{ outline-color: var(--hero-fg); }
+
+  /* ---------- PULL QUOTE ---------- */
+  .pullquote{ padding: clamp(56px,10vw,104px) var(--gutter); }
+  .pullquote-inner{ max-width:820px; margin:0 auto; }
+  .pullquote p{
+    font-family:var(--font-display); font-style:italic; font-weight:500;
+    font-size:clamp(1.5rem,4vw,2.5rem); line-height:1.28; letter-spacing:-0.005em; color:var(--ink);
+  }
+  .pullquote cite{ font-style:normal; }
+
+  /* ---------- STATS ---------- */
+  .stats{ padding: clamp(48px,8vw,80px) var(--gutter); }
+  .stats-inner{ max-width:1100px; margin:0 auto; }
+  .stats-label{ font-family:var(--font-mono); font-size:.72rem; letter-spacing:.12em; text-transform:uppercase; opacity:.7; margin-bottom:28px; display:block; }
+  .stat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:clamp(28px,5vw,48px); }
+  @media (max-width:760px){ .stat-grid{ grid-template-columns:1fr; } }
+  .stat-figure{ font-family:var(--font-display); font-weight:700; font-variant-numeric:tabular-nums; font-size:clamp(2.6rem,6vw,4.2rem); line-height:1; }
+  .stat-caption{ font-size:.9rem; opacity:.82; margin-top:12px; max-width:32ch; line-height:1.55; }
+
+  /* ---------- SECTIONS (generic) ---------- */
+  section.block{ padding: clamp(56px,9vw,96px) var(--gutter); }
+  .block-inner{ max-width:1100px; margin:0 auto; }
+  .kicker{ font-family:var(--font-mono); font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin-bottom:12px; display:block; }
+  .block h2{ font-size:clamp(2rem,4vw,3rem); font-weight:650; max-width:20ch; }
+  .block .lede{ font-size:1.02rem; color:var(--ink-soft); max-width:58ch; margin-top:18px; }
+
+  /* ---------- STAMP BADGE (reused from the Garita MCP product itself) ---------- */
+  .stamp-badge{
+    display:inline-flex; align-items:center; gap:6px; border:3px double currentColor;
+    border-radius:4px 14px 4px 14px; padding:7px 15px; transform:rotate(-4deg);
+    font-family:var(--font-display); font-weight:700; text-transform:uppercase; letter-spacing:.05em; font-size:.76rem;
+    white-space:nowrap;
+  }
+  .stamp-badge--ok{ color:var(--ok); }
+  .stamp-badge--warn{ color:var(--warn); }
+
+  /* ---------- PRODUCT: clearance card ---------- */
+  .product-card{
+    margin-top:40px; position:relative; background:var(--surface); border:1px solid var(--line);
+    border-radius:6px 28px 6px 28px; padding:clamp(28px,4vw,44px);
+    display:grid; grid-template-columns:auto 1fr auto; gap:30px; align-items:center;
+  }
+  @media (max-width:720px){ .product-card{ grid-template-columns:1fr; text-align:left; } }
+  .product-card .stamp-badge{ position:absolute; top:-16px; right:28px; background:var(--surface); }
+  @media (max-width:720px){ .product-card .stamp-badge{ position:static; margin-bottom:6px; transform:rotate(-3deg); } }
+  .product-icon{
+    width:60px; height:60px; border-radius:6px 16px 6px 16px; background:var(--surface-sunken); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; flex:none;
+  }
+  .product-icon svg{ width:30px; height:30px; color:var(--accent); }
+  .product-name{ font-family:var(--font-display); font-size:1.55rem; font-weight:700; }
+  .product-tag{ font-family:var(--font-mono); font-size:.74rem; color:var(--ink-faint); letter-spacing:.03em; margin-top:4px; }
+  .product-desc{ font-size:.94rem; color:var(--ink-soft); margin-top:12px; max-width:50ch; }
+  .product-usage{ font-size:.87rem; color:var(--ink-soft); margin-top:14px; padding-top:14px; border-top:1px dashed var(--line); max-width:50ch; }
+  .product-usage b{ color:var(--ink); font-weight:600; }
+  .product-cta{ flex:none; }
+  .btn--dark{ background:var(--accent); color:var(--paper); }
+  .btn--dark:hover{ filter:brightness(0.9); }
+  .btn--dark:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; }
+
+  /* ---------- HOW IT WORKS ---------- */
+  .steps{ margin-top:40px; display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:6px 24px 6px 24px; overflow:hidden; }
+  @media (max-width:700px){ .steps{ grid-template-columns:1fr; } }
+  .step{ background:var(--surface); padding:30px 28px; }
+  .step-mark{ font-family:var(--font-mono); font-size:.75rem; color:var(--accent); letter-spacing:.05em; }
+  .step h3{ font-size:1.2rem; margin-top:10px; }
+  .step p{ font-size:.91rem; color:var(--ink-soft); margin-top:10px; }
+
+  /* ---------- ACCESS ---------- */
+  .access{ background:var(--surface-sunken); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+  .access-inner{ max-width:640px; margin:0 auto; text-align:center; }
+  .access .stamp-badge{ margin-bottom:20px; background:var(--surface-sunken); }
+  .access h2{ margin:0 auto; }
+  .access .lede{ margin-inline:auto; }
+  .access-ctas{ display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:30px; }
+  .access-note{ font-size:.8rem; color:var(--ink-faint); margin-top:22px; }
+  .btn--disabled{ opacity:.5; cursor:not-allowed; pointer-events:none; }
+
+  footer{
+    padding: 26px var(--gutter) calc(30px + env(safe-area-inset-bottom, 0px));
+    display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    font-size:.78rem; color:var(--ink-faint); max-width:1100px; margin:0 auto;
+  }
+</style>
+
+<nav class="top">
+  <span class="wordmark">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 21V9l8-5 8 5v12"/><path d="M4 12h16"/><path d="M9 21v-6h6v6"/>
+    </svg>
+    Garita Labs
+  </span>
+  <div class="navlinks">
+    <a href="#producto">Producto</a>
+    <a href="#como-funciona">Cómo funciona</a>
+    <a href="#acceso">Acceso</a>
+  </div>
+</nav>
+
+<header class="hero navy-band">
+  <div class="hero-inner">
+    <div class="gate" id="gate">
+      <div class="gate-ground"></div>
+      <div class="gate-post"></div>
+      <div class="gate-box"></div>
+      <div class="gate-arm"></div>
+    </div>
+    <div class="hero-copy">
+      <span class="eyebrow">Infraestructura de confianza para agentes de IA</span>
+      <h1>Garita Labs</h1>
+      <p class="sub">Construimos los puestos de control que hoy le faltan a los agentes de IA: auditoría de las herramientas a las que se conectan, y una barrera de aprobación humana antes de que una acción irreversible se ejecute sola.</p>
+      <div class="hero-ctas">
+        <a class="btn btn--primary" href="https://claude.ai/artifact/PqSUGMaRowvjsw4rnQCQsS" target="_blank" rel="noopener">Abrir Garita MCP</a>
+        <a class="btn btn--ghost" href="#acceso">Solicitar acceso</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="pullquote">
+  <div class="pullquote-inner">
+    <p>"Ninguna acción irreversible — pagar, borrar, transferir — debería ejecutarse sola sin que alguien la haya mirado primero."</p>
+  </div>
+</section>
+
+<section class="stats navy-band">
+  <div class="stats-inner">
+    <span class="stats-label">Por qué existe Garita Labs</span>
+    <div class="stat-grid">
+      <div>
+        <div class="stat-figure">1.862</div>
+        <p class="stat-caption">servidores MCP encontrados expuestos sin autenticación en una investigación de seguridad de 2026.</p>
+      </div>
+      <div>
+        <div class="stat-figure">65%</div>
+        <p class="stat-caption">de las descargas de herramientas de agentes ya son de acción directa — no solo lectura de datos.</p>
+      </div>
+      <div>
+        <div class="stat-figure">×26</div>
+        <p class="stat-caption">crecimiento en un año de los servidores capaces de ejecutar pagos, muchos en cripto e irreversibles.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="producto">
+  <div class="block-inner">
+    <span class="kicker">Catálogo</span>
+    <h2>Herramientas de Garita Labs</h2>
+    <p class="lede">Cada herramienta es un módulo independiente que ataca un problema real y documentado de la gobernanza de agentes de IA — sin tocar las demás. Hoy son 30; la meta es llegar a 100.</p>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 3.5h8l4.5 4.5v8L16 20.5H8L3.5 16v-8z"/><line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Garita MCP</div>
+        <div class="product-tag">Auditor de servidores MCP + simulador de aprobación</div>
+        <p class="product-desc">Un puntaje de confianza para cada servidor MCP, y una simulación de política de retención antes de dejar que el agente actúe solo.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> conecta tu agente de IA al servidor con tu llave de acceso y pídele que revise el manifiesto de un servidor MCP nuevo antes de conectarse, y que confirme cada acción riesgosa (pagar, borrar, transferir) antes de ejecutarla sola.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/PqSUGMaRowvjsw4rnQCQsS" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3.5l7.5 3.2v5.6c0 4.6-3.15 7.9-7.5 9.2-4.35-1.3-7.5-4.6-7.5-9.2V6.7z"/><path d="M9 12.3l2.2 2.2L15.3 10"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Garita Escudo</div>
+        <div class="product-tag">Detector de descripciones envenenadas de herramientas MCP</div>
+        <p class="product-desc">Revisa el texto de una herramienta MCP en busca de instrucciones ocultas para el agente — el mismo patrón detrás del robo de una llave SSH vía una "calculadora" y del secuestro silencioso de un servidor de WhatsApp en 2025-2026.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> antes de confiar en una herramienta MCP nueva, pídele a tu agente que revise su descripción con Garita Escudo — si tiene una instrucción escondida, te avisa antes de que el agente la siga sin que te enteres.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/LN1zuisttkoDy7HZLiRhYQ" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="10.5" cy="10.5" r="6.5"/><line x1="19.5" y1="19.5" x2="15.3" y2="15.3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Verificador de Vulnerabilidades</div>
+        <div class="product-tag">Fallas de seguridad ya conocidas y publicadas en un paquete</div>
+        <p class="product-desc">Antes de confiar en un paquete del que depende un servidor MCP, revisa si ya tiene una falla de seguridad conocida y publicada (CVE), consultando la base de datos abierta OSV.dev. Un paquete puede pasar todas las demás revisiones y aun así tener una falla ya documentada en su propio código.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> dile a tu agente el nombre y el ecosistema del paquete (por ejemplo, "npm" y "left-pad") — te devuelve cada falla conocida, con su gravedad, fecha y un link para leer más.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/H6kFBY5cCjrtD8bN3xBayw" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.5"/><polyline points="4 4 4 8.5 8.5 8.5"/>
+          <path d="M4 13a8 8 0 0 0 13.7 4.7L20 15.5"/><polyline points="20 20 20 15.5 15.5 15.5"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Detector de Rug-Pull</div>
+        <div class="product-tag">Avisa si una herramienta ya aprobada cambió sin que te dieras cuenta</div>
+        <p class="product-desc">Una herramienta puede verse inofensiva cuando la apruebas por primera vez, y cambiar después para esconder una instrucción peligrosa. Compara la versión que aprobaste contra la versión de ahora, y te dice exactamente qué cambió.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> guarda la versión de un servidor MCP que ya revisaste, y la próxima vez que te conectes, pídele a tu agente que la compare contra la versión actual antes de volver a confiar en ella.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/CoH44EWa3uBUmTBmkRZC3P" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3.5V8h4.5"/><line x1="12" y1="11.5" x2="12" y2="15.2"/><circle cx="12" cy="17.6" r=".2" fill="currentColor"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Detector de Configuración Envenenada</div>
+        <div class="product-tag">Instrucciones escondidas en AGENTS.md, CLAUDE.md, .cursorrules y skills</div>
+        <p class="product-desc">Un agente de código carga y confía de inmediato, sin ningún paso de aprobación, en los archivos de instrucciones que viven en tu propio repositorio — una puerta que Garita Escudo nunca mira. Caso real (Mitiga, 2026): un archivo de reglas envenenado exfiltró credenciales de AWS/Kubernetes/Terraform en menos de 2 minutos.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> antes de confiar en un repositorio nuevo (o después de clonarlo), pídele a tu agente que revise sus archivos de instrucciones con esta herramienta — si alguno tiene una instrucción para leer y exponer tus credenciales, te avisa antes de que el agente la siga.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/EDhZwcWbp96KRhfJgWSND5" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20.5 7.5v9c0 .5-.3 1-.8 1.2l-7 3.5c-.4.2-.9.2-1.4 0l-7-3.5c-.5-.2-.8-.7-.8-1.2v-9c0-.5.3-1 .8-1.2l7-3.5c.4-.2.9-.2 1.4 0l7 3.5c.5.2.8.7.8 1.2z"/><path d="M8.5 10.5l3.5 2 3.5-2"/><line x1="12" y1="12.5" x2="12" y2="17.5"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Verificador de Autenticidad de Paquetes</div>
+        <div class="product-tag">Detecta paquetes falsos antes de instalarlos (typosquatting / "slopsquatting")</div>
+        <p class="product-desc">Un asistente de código con IA a veces alucina el nombre de un paquete que no existe — y desde 2026 hay campañas activas que registran esos nombres alucinados de verdad, con malware adentro. Caso real (agosto 2026): una sola campaña publicó 800-1.000+ paquetes maliciosos en npm con nombres diseñados para parecer alucinaciones de IA.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> antes de instalar una dependencia nueva (sobre todo una que te sugirió un agente), dale su nombre a esta herramienta — revisa antigüedad, historial de versiones, similitud con paquetes populares y scripts de instalación automática, y avisa si el paquete ni siquiera existe todavía.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/BXNMG5fAaRsEbKQWv6ud9g" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3.5c-4.5 0-7.5 3-7.5 6.8 0 2.6 1.4 4.3 2.8 5.5.6.5.9 1.2.9 2v.7h7.6v-.7c0-.8.3-1.5.9-2 1.4-1.2 2.8-2.9 2.8-5.5 0-3.8-3-6.8-7.5-6.8z"/><line x1="9.2" y1="20.5" x2="14.8" y2="20.5"/><path d="M10 10.2l1.6-2.2 1 1.4 1.4-2"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Detector de Envenenamiento de Memoria</div>
+        <div class="product-tag">Instrucciones plantadas en la memoria de largo plazo de un agente, para activarse semanas después</div>
+        <p class="product-desc">Un agente con memoria persistente puede guardar una instrucción plantada por un tercero — un documento, una página web, un resumen automático — que recién se activa en una sesión sin relación con el ataque original. Documentado en el método MINJA (NeurIPS 2025, +95% de éxito contra agentes en producción) y en un ataque real contra Gemini (investigador Rehberger, 2025).</p>
+        <p class="product-usage"><b>Cómo se usa:</b> antes de guardar (o después de recuperar) una nota, un resumen o cualquier texto en la memoria de un agente, pasalo por esta herramienta — revisa gatillos condicionales, combinaciones de "recordalo para siempre" + "no lo menciones", suplantación de autoridad del sistema, y exfiltración programada a futuro.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/S4xKC2VB4hv2icp85MUjuX" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5"/><path d="M4 12h16M12 3.5c2.2 2.3 3.4 5.4 3.4 8.5s-1.2 6.2-3.4 8.5c-2.2-2.3-3.4-5.4-3.4-8.5S9.8 5.8 12 3.5z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Detector de SSRF</div>
+        <div class="product-tag">Peticiones HTTP sin validar que un atacante usa para alcanzar recursos internos</div>
+        <p class="product-desc">Una herramienta que le hace una petición HTTP a una URL controlada por el agente puede terminar usada para que el servidor pida, en su nombre, un recurso interno: el endpoint de metadata de la nube (roba credenciales temporales de AWS/GCP/Azure), un panel de administración, o cualquier servicio en la red privada. Documentado en un censo real de 2026 sobre 9.695 servidores MCP: SSRF fue el 8.5% de los 4.982 problemas encontrados, dentro de un 60% de servidores con algún problema de seguridad.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código de la función que hace la petición HTTP — revisa falta de validación de la URL, IPs privadas o de metadata hardcodeadas, TLS desactivado, redirecciones sin revalidar, y ausencia de restricción de esquema.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/7UFe7ySXdmtbVA1T3UkfTn" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h4.6l1.8 2.2h6.6A1.5 1.5 0 0 1 20 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z"/><path d="M9.5 14.5l2-2.2 1.4 1.6 2-2.4"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Detector de Path Traversal</div>
+        <div class="product-tag">Operaciones de archivo sin validar que dejan escapar rutas fuera del directorio permitido</div>
+        <p class="product-desc">Una herramienta que lee, escribe o borra un archivo usando una ruta que depende de una entrada externa puede terminar accediendo a cualquier archivo del sistema — credenciales, llaves SSH, configuración — si esa ruta no se valida. Es la categoría más grande del censo 2026 de servidores MCP (17.7% de 9.695 servidores, 880 casos) y el patrón exacto detrás de CVE-2026-40576 (CVSS 9.4), una falla sin autenticar en un servidor MCP de Excel.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código de la función que lee, escribe o borra un archivo — revisa falta de validación contra secuencias "../", rutas sensibles hardcodeadas (/etc/passwd, llaves SSH, credenciales) y ausencia de un rechazo explícito de rutas absolutas.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/1EkGumEioJuoTEqjGG9tkP" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2"/><polyline points="7 9 10 12 7 15"/><line x1="12" y1="15" x2="16.5" y2="15"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Detector de Inyección de Comandos</div>
+        <div class="product-tag">Ejecuciones de comandos del sistema sin validar que un atacante puede secuestrar</div>
+        <p class="product-desc">Una herramienta que arma un comando de shell a partir de una entrada del agente puede terminar ejecutando cualquier comando que un atacante logre colar — encadenado con ";", "&amp;&amp;" o "|" — aunque el "comando base" ya esté validado contra una lista de permitidos. Es la segunda categoría más grande del censo 2026 de servidores MCP (9.6%, 476 casos) y el patrón exacto detrás de CVE-2026-55581/55582 (mcp-shell, CVSS hasta 8.6), cuyo "modo seguro" solo revisaba el primer token del comando.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código de la función que ejecuta el comando — revisa falta de validación/escape en llamadas que invocan una shell, el patrón "descargar y ejecutar" (curl/wget a bash), y ausencia de filtrado de metacaracteres de shell.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/Cq8Wbg7XSX4qrSjJHgY4M9" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Detector de Inyección SQL</div>
+        <div class="product-tag">Consultas armadas por concatenación, y falsos "solo lectura" sin aplicar</div>
+        <p class="product-desc">Una herramienta que arma una consulta SQL a partir de una entrada del agente, en vez de usar parámetros preparados, puede terminar ejecutando cualquier sentencia que un atacante logre colar. Caso real de mayor perfil: Datadog Security Labs encontró inyección SQL en el propio servidor MCP de referencia de Postgres de Anthropic — su restricción de "solo lectura" vivía únicamente en el texto que lee el agente, no como un permiso real de base de datos. 4.2% del censo 2026 de servidores MCP (211 casos).</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código de la función que ejecuta la consulta — revisa concatenación/interpolación sin parametrizar, y si el código afirma ser "solo lectura" sin ninguna aplicación real de esa restricción.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/HT4ZZeKi3sZg74tPf32wtx" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><circle cx="12" cy="16" r="1.6"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Tokens</div>
+        <div class="product-tag">Reenvío de tokens OAuth sin validar (token passthrough / confused deputy)</div>
+        <p class="product-desc">Un middleware o herramienta MCP que recibe un token de autorización y lo reenvía tal cual hacia otra API — o deja pasar la petición sin validarlo — es el clásico "confused deputy" que la propia especificación de MCP prohíbe explícitamente. Caso real de mayor perfil: CVE-2026-48039 (Meta Ads MCP, CVSS 9.1 crítico), donde un middleware reenviaba peticiones sin validar el header Authorization y filtraba el token de larga duración del operador. El mismo patrón aparece en CVE-2025-6514 (CVSS 9.6) y CVE-2026-27826 (CVSS 8.2).</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código del middleware o la función que maneja el token — revisa reenvío sin validar hacia otra llamada saliente, ausencia de verificación antes de dejar pasar la petición, verificación de JWT sin el claim "audience", y tokens expuestos como parámetro de una URL.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/AqMcihMRK2AWcc2zZVc2Rm" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8.5 10.5V7a3.5 3.5 0 0 1 7 0v3.5"/><circle cx="12" cy="15.3" r="1.4"/><line x1="12" y1="16.7" x2="12" y2="18.3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Secretos</div>
+        <div class="product-tag">Credenciales/API keys embebidas en texto plano en código y configuración</div>
+        <p class="product-desc">Una API key, un token o una contraseña escrita tal cual en el código o en un archivo de configuración queda expuesta a cualquiera que vea ese archivo. Un estudio real de Hush Security (septiembre 2026) escaneó ~82.000 archivos de configuración MCP públicos: 1 de cada 8 credenciales estaba embebida en texto plano, el 53% con acceso a nivel de toda la organización, y el 80% de las que tenían política de expiración nunca expiraban por defecto. También documentado por Trend Micro (48% de 19.402 servidores MCP con almacenamiento inseguro) y catalogado como MCP01 en el OWASP MCP Top 10.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código o el archivo de configuración — revisa formatos reconocibles de credenciales reales (OpenAI, AWS, GitHub, Slack, Google, llaves PEM), asignaciones literales a variables/llaves de nombre de credencial, líneas ".env", y valores de reserva hardcodeados. Reconoce placeholders comunes para no marcarlos como riesgo.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/BjqqKBKysu5ZZ5jdxbWJny" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="4" width="7" height="7" rx="1.3"/><rect x="13" y="4" width="7" height="7" rx="1.3"/><rect x="4" y="13" width="7" height="7" rx="1.3"/><path d="M17 13v3M15.5 14.5h3M14 18.5l1.5-1.5 1.5 1.5M17.5 17l-1.5 1.5-1.5-1.5"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Deserialización</div>
+        <div class="product-tag">pickle, torch.load y yaml.load que pueden ejecutar código al "leer" datos</div>
+        <p class="product-desc">Funciones como pickle.load(), torch.load() (usada para cargar modelos de IA) o yaml.load() sin un cargador seguro no solo leen datos — pueden reconstruir objetos arbitrarios, y un objeto puede ejecutar código al reconstruirse. Basta con que esos bytes vengan de afuera. Caso real: CVE-2025-45146 (CVSS 9.8, crítico) en ModelCache, una librería de caché para agentes de IA. CVE-2025-32434 (CVSS 9.3) mostró que ni siquiera la mitigación recomendada por PyTorch bastaba sola en versiones anteriores a la 2.6.0.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que carga un dato serializado — revisa pickle/torch.load/yaml.load sin su forma segura, y la firma clásica de un payload malicioso (un método __reduce__ que ejecuta un comando del sistema).</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/7ExUnQu8iJcudozqdLDDdA" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="7" height="7" rx="1.3"/><rect x="14" y="13" width="7" height="7" rx="1.3"/><path d="M9.5 9.5L14.5 15"/><path d="M12 12.3l2.6 2.9-3.4.7z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Detector de Flujos Tóxicos</div>
+        <div class="product-tag">Combinaciones peligrosas de herramientas en un mismo servidor (confused deputy / lethal trifecta)</div>
+        <p class="product-desc">Ninguna herramienta individual tiene que estar rota: basta con juntar una que lea datos privados o contenido externo no confiable con una que pueda enviar/publicar datos hacia afuera, sin un paso de aprobación real entre medio. Caso real: CVE-2026-77255 (mcp-atlassian, CVSS 8.6) dejaba que el parámetro de adjuntos de una herramienta leyera cualquier archivo local y lo subiera solo a un ticket de Jira. Mismo patrón detrás de EchoLeak/CVE-2025-32711 (Microsoft 365 Copilot) y del caso reportado por Invariant Labs en un servidor MCP de GitHub.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el manifiesto de un servidor MCP (mismo formato que audit_mcp_server) — revisa qué herramientas leen datos privados/no confiables, cuáles pueden mandar datos hacia afuera sin un campo de confirmación exigido en su esquema, y marca con más severidad cuando coinciden las tres piezas completas.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/19jWJjvfWPySWbYiRao5tN" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 5.5h16v13H4z"/><path d="M4 9.5h16"/><path d="M8.5 13l1.8 1.8L8.5 16.6"/><path d="M12.5 16.6h3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Plantillas</div>
+        <div class="product-tag">Inyección en plantillas (SSTI): Jinja2, EJS, Handlebars, PromptTemplate de LangChain</div>
+        <p class="product-desc">Un motor de plantillas no solo "rellena espacios en blanco" — su lenguaje de expresiones puede llamar métodos y recorrer atributos de objetos. Si el TEXTO de la plantilla (no solo los datos que la rellenan) viene de afuera, un atacante puede escribir código dentro de la plantilla y terminar ejecutándolo en el servidor. Motivada por CVE-2026-33154 (CVSS 8.1, Dynaconf), un aviso en Agenta-AI (plataforma de evaluación de LLMs) y un aviso en LangChain mismo — el framework de agentes más usado — por inyección en plantillas de prompt.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que compila una plantilla — revisa si la fuente de la plantilla depende de una entrada externa en vez de un texto fijo, si falta un entorno sandboxeado, y si el código confunde "escapar la salida" (que no protege acá) con una defensa real.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/PCy4BjmsA9ESBeatUp3Es8" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 6L3 12l5 6"/><path d="M16 6l5 6-5 6"/><path d="M13 5l-3 8h3l-1 6 5-9h-3z" fill="currentColor" stroke="none"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Código Dinámico</div>
+        <div class="product-tag">Ejecución de código no confiable (eval, Function, exec, vm.runInContext)</div>
+        <p class="product-desc">Una herramienta que evalúa código en tiempo de ejecución — eval(), Function() de JS, exec() de Python, vm.runInContext() de Node — a partir de un texto que no escribió el desarrollador (respuesta de un modelo, documento recuperado de un pipeline RAG, parámetro de herramienta) le da a quien controle ese texto ejecución arbitraria dentro del propio proceso del agente. Caso real: CVE-2026-26030 (CVSS 9.8, feb 2026) en Microsoft Semantic Kernel — un filtro de vector store interpolaba contenido recuperado de un documento indexado directo en un eval(), dando RCE a partir de datos envenenados de RAG. También detecta una falsa mitigación: vm2 está deprecada desde 2023 tras varias fugas de sandbox críticas.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que evalúa código dinámicamente — revisa si el argumento depende de una entrada externa en vez de un texto fijo, el patrón de "eval implícito" en setTimeout/setInterval con un string, y si el código usa vm2 (no confiable) en vez de isolated-vm (aislamiento real) para "sandboxear" la ejecución.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/KtqXjJWFA2k3VDPeARMiQT" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4.5" width="10" height="7.5" rx="1.5"/><line x1="3" y1="7" x2="13" y2="7"/>
+          <circle cx="18.5" cy="15.5" r="4"/><path d="M18.5 13.5v4M16.7 15.5h3.6"/>
+          <path d="M9 12v3M13 8.5l4 4" stroke-dasharray="2 2"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Rebinding DNS</div>
+        <div class="product-tag">Falta de validación de Origen en el transporte HTTP/SSE de MCP</div>
+        <p class="product-desc">Un servidor MCP que expone su transporte HTTP/SSE sin validar el header Origin deja una puerta abierta a que una página web maliciosa haga que el navegador de la víctima hable directamente con ese servidor — que suele correr en localhost — como si fuera un cliente de confianza (rebinding DNS). Bindear solo a 127.0.0.1 no alcanza: es precisamente lo que el rebinding rompe. No es un bug aislado: el mismo patrón apareció de forma independiente en 2026 en los SDK oficiales de Rust (CVE-2026-42559, CVSS 8.8) y Java, y en mysql-mcp-server (Python).</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que arma el transporte HTTP/SSE (el constructor del transporte o el registro de la ruta) — revisa si falta una validación reconocible del header Origin, y si el código confunde "solo escucha en localhost" (que no protege acá) con una defensa real contra rebinding.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/LgEYLbnQxddthmmLUmD6YG" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3.2l7 3.1v5.4c0 5-3 8-7 9.1-4-1.1-7-4.1-7-9.1V6.3z"/>
+          <circle cx="12" cy="11.4" r="2.1"/><path d="M12 13.5v2.4"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Centinela de Autenticación</div>
+        <div class="product-tag">Endpoints MCP HTTP/SSE sin ninguna verificación de autenticación</div>
+        <p class="product-desc">Un servidor MCP que expone su transporte HTTP/SSE sin verificar autenticación antes de despachar la petición deja sus herramientas abiertas a cualquiera que sepa la URL — sin login, sin llave de API, sin token. Es el patrón más repetido entre los CVEs de MCP de 2026: CVE-2026-44895 (CVSS 9.1, crítico) en un servidor MCP de GitLab — sin autenticación y con CORS totalmente abierto, cualquiera podía invocar sus 86 herramientas (incluido borrar repos) usando el token del operador. Mismo patrón confirmado en Azure MCP Server (Microsoft), deepseek-mcp-server, NetLicensing-MCP, obsidian-web-mcp y mcp-documentation-server.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que arma el transporte HTTP/SSE (el constructor del transporte o el registro de la ruta) — revisa si falta una verificación reconocible de autenticación, y si además el CORS está completamente abierto, la combinación exacta que hizo explotable a CVE-2026-44895.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/6x8QpsH5jr5TtpxsXsaFbG" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4.5" width="18" height="14" rx="1.6"/>
+          <path d="M7 9.5l3 2.5-3 2.5"/><line x1="12" y1="14.5" x2="16" y2="14.5"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Lanzamiento MCP (STDIO)</div>
+        <div class="product-tag">"command" sin validar en el transporte stdio de un cliente MCP</div>
+        <p class="product-desc">Cuando un cliente MCP se conecta por stdio (en vez de HTTP/SSE), los SDKs oficiales ejecutan el campo command de inmediato al construir la conexión — antes de que exista ninguna validación del protocolo MCP. Falla de diseño confirmada en 2026 en los cuatro SDKs oficiales (Python, TypeScript, Java, Rust). Caso real: CVE-2026-30623 en LiteLLM, donde un endpoint de "probar conexión" pasaba el command que mandaba el propio usuario directo al lanzador. También detecta brechas de "rehidratación" (se valida al guardar pero no al lanzar, el mismo patrón detrás de CVE-2026-30623 antes de su parche) y el bypass vía banderas de ejecución directa (-c/-e/--eval) aunque el binario esté en la lista blanca. También documentado en CVE-2026-22688 (Tencent WeKnora, CVSS 9.9).</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que arma la conexión stdio de un cliente MCP (StdioClientTransport, StdioServerParameters) — revisa si el command depende de una entrada externa sin lista de lanzadores permitidos, si el lanzamiento viene de una configuración ya guardada sin revalidar, y si una bandera de ejecución directa esquiva una lista blanca que sí existe.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/N57d6KdNTRcVCC9yrLutkh" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7.5 12c0-2 1.6-3.5 3.5-3.5"/>
+          <circle cx="16.5" cy="12" r="3.5"/><circle cx="7.5" cy="12" r="3.5"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo Anti-ReDoS</div>
+        <div class="product-tag">Expresiones regulares vulnerables a backtracking catastrófico</div>
+        <p class="product-desc">Una expresión regular con cuantificadores anidados (ej. (a+)+, (\s*\w+)*, (a|a)*) aplicada sobre una entrada sin tope de longitud puede colgar el proceso del agente entero con un solo string cuidadosamente armado (ReDoS, CWE-1333). Motivada por CVE-2026-0621 (CVSS 7.5): un regex de validación vulnerable, alcanzable sin autenticación, en un servidor/herramienta MCP ampliamente desplegado. También detecta la variante de un regex compilado dinámicamente (RegExp(x)/re.compile(x)) a partir de una fuente no controlada por el desarrollador.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que compila o aplica una expresión regular — revisa cuantificadores anidados aplicados contra una entrada variable sin tope de longitud ni motor con timeout/librería segura, y regex compilados dinámicamente desde una variable.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/JC7juoQoDuKJpsvK1wzqVF" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="5" y="11" width="14" height="9" rx="1.6"/>
+          <path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/>
+          <circle cx="12" cy="15" r="1.3"/>
+          <path d="M3 7.5l2 2 2-2" opacity=".55"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Secuestro de Sesión</div>
+        <div class="product-tag">Sesiones validadas solo por ID, sin vínculo con el dueño</div>
+        <p class="product-desc">Un servidor que busca una sesión solo por el ID que trae la petición y confía en ella sin comparar ningún campo de dueño contra quien la presenta ahora, es vulnerable a secuestro de sesión: quien consiga ese ID hereda la sesión de otro cliente por completo. Motivada por CVE-2026-52869 (CVSS alto). También detecta IDs de sesión generados con poca entropía (Math.random(), Date.now() solo, un contador) — adivinables por fuerza bruta.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que busca o genera sesiones — revisa búsquedas por ID sin vínculo de dueño verificado después, y generación de IDs de sesión con poca entropía en vez de un generador criptográficamente seguro.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/5gtk7Y1oD45MnLA4GGW738" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="9" cy="12" r="5.5"/><circle cx="15.5" cy="12" r="5.5" opacity=".55"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Confusión de Audiencia OAuth</div>
+        <div class="product-tag">Validación de "aud" rota que deja pasar un token de otro servidor (fail-open)</div>
+        <p class="product-desc">Un verificador de JWT/OAuth puede "tener" una validación de audiencia que un lector apurado asumiría que funciona, pero que falla en modo abierto: un catch() que silencia el rechazo, una rama de "no coincide" que solo loguea, o todo el chequeo condicionado a una bandera de configuración apagable. Motivada por CVE-2026-14541 (confusión de audiencia OAuth en MCP). Distinto del chequeo superficial de Escudo de Tokens: esta herramienta mira el VERIFICADOR PROPIO del servidor con más profundidad.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código del verificador de tokens de tu servidor — revisa catch() que silencian el rechazo de audiencia, ramas de "no coincide" que no bloquean la petición, chequeos condicionados a una bandera, y ausencia total de validación de "aud".</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/JqDsZ9WUyhTQ6yejSSapg7" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 19h14"/><path d="M8 19V13"/><path d="M12 19V9"/><path d="M16 19V5"/>
+          <path d="M16 5l-2.2 2.2M16 5l2.2 2.2" opacity=".7"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Asignación sin Límite</div>
+        <div class="product-tag">Agotamiento de memoria/CPU por asignaciones y bucles sin tope (CWE-770)</div>
+        <p class="product-desc">Una herramienta que lee un cuerpo/archivo completo en memoria sin tope de tamaño, o que reserva un array/buffer o corre un bucle cuyo tamaño viene directamente de un número que controla quien llama, deja la puerta abierta a que un solo mensaje agote toda la memoria o CPU del proceso. Motivada por CVE-2026-14539 (CVSS alto). Distinto de herramientas que miran la lógica de los datos: acá el problema es puramente de recursos, sin importar el contenido.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que lee un body/archivo, o que reserva memoria/itera según una cantidad externa — revisa express.json()/bodyParser sin "limit", streams acumulados sin chequeo de tamaño, lecturas de archivo sin fs.statSync() antes, y arrays/bucles sin tope dependiendo de una variable.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/EN6h84iLamTLZvTnYT8RKi" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="5" width="7" height="14" rx="1.4"/>
+          <rect x="13" y="5" width="7" height="14" rx="1.4" opacity=".55"/>
+          <path d="M9 11h4" opacity=".8"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Fuga Entre Clientes</div>
+        <div class="product-tag">Estado de servidor MCP compartido sin aislamiento entre clientes</div>
+        <p class="product-desc">Un servidor MCP que crea una sola instancia de McpServer/Server al arrancar y la reutiliza para atender a todos los clientes (en vez de una instancia nueva por sesión) puede mezclar el estado de un cliente con el de otro. Lo mismo pasa con una variable mutable a nivel de módulo que una herramienta registrada lee. Motivada por CVE-2026-25536 (CVSS 7.1) en el propio SDK oficial de TypeScript de MCP — catalogado por OWASP como "Context Injection and Over Sharing".</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código que arma el transporte HTTP/SSE de tu servidor MCP — revisa una instancia de servidor a nivel de módulo reutilizada dentro de un handler de petición, y estado mutable (let/var) a nivel de módulo referenciado dentro de una herramienta registrada.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/MptERrSx5TDJgJM2hUrftt" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="8.5" r="3.2"/>
+          <path d="M5.5 19c1-3.4 3.6-5.2 6.5-5.2s5.5 1.8 6.5 5.2" opacity=".55"/>
+          <path d="M16 6l2 2-2 2" opacity=".8"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Secuestro de Sampling</div>
+        <div class="product-tag">Peticiones de sampling MCP cumplidas sin revisión humana</div>
+        <p class="product-desc">La función de "sampling" de MCP deja que un servidor le pida al modelo del cliente que genere una completion. Un cliente/host que cumple esa petición sin ningún paso reconocible de revisión humana — lo que la propia especificación de MCP recomienda exigir — deja que un servidor malicioso esconda instrucciones que el modelo sigue sin que nadie note nada raro, incluida la invocación encubierta de herramientas. Documentado en una investigación de Unit42 (Palo Alto Networks, octubre 2026).</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código del lado cliente/host que maneja peticiones de sampling entrantes — revisa ausencia de aprobación humana, invocación encubierta de herramientas (callTool) desde el mismo handler, y falta de tope de tokens (maxTokens).</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/Tgy4qRxL4NqEAzGZHQfX4h" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="4" width="16" height="11" rx="1.6"/>
+          <path d="M8 19h8"/><path d="M12 15v4"/>
+          <path d="M9 9.5l2 2 4-4.5" opacity=".7"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Esquema de Salida</div>
+        <div class="product-tag">SSRF + denegación de servicio vía validación de esquemas (CVE-2026-116686)</div>
+        <p class="product-desc">Cuando un cliente de MCP valida el resultado de una herramienta contra el outputSchema que el propio servidor le mandó, y usa jsonschema con su resolución de referencias por defecto, un servidor malicioso puede meter un $ref que apunte a una URL externa (SSRF). Peor: si esa llamada de red es síncrona dentro de una función async, un endpoint que nunca responde congela el event loop entero del proceso. Motivada por CVE-2026-116686 (CVSS 6.5) en el SDK oficial de Python de MCP.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código del lado cliente que valida outputSchema/inputSchema con jsonschema, o que hace llamadas de red dentro de una función async — revisa esquemas no confiables sin Registry/Resolver, y llamadas síncronas sin timeout dentro de async def.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/99Vwifw9LZxhewEhdZcveo" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="7.5" r="3.2"/>
+          <path d="M5.5 19.5c1-4 3.8-6.2 6.5-6.2s5.5 2.2 6.5 6.2" opacity=".55"/>
+          <path d="M12 13.3V19" opacity=".4"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Agencia Excesiva</div>
+        <div class="product-tag">Acciones irreversibles sin confirmación exigida ni tope (OWASP LLM06)</div>
+        <p class="product-desc">Una herramienta que puede transferir, retirar, pagar o borrar sin que su esquema de entrada EXIJA un campo de confirmación, y/o sin ningún tope máximo en un campo de monto, es "agencia excesiva" (OWASP LLM06). Motivada directamente por el hackeo de Binance de octubre 2026 (6.300 millones de dólares): un solo dispositivo/credencial comprometido alcanzó un sistema con autoridad para autorizar retiros, sin ninguna aprobación independiente ni tope por operación.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta un manifiesto MCP (mismo formato que audit_mcp_server) — revisa herramientas con una acción irreversible/de alto valor sin confirmación exigida en required, y campos de monto sin tope máximo (maximum/exclusiveMaximum).</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/7ff7NA7syATygyT9Gw3ufs" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+
+    <div class="product-card">
+      <span class="stamp-badge stamp-badge--ok">De uso libre</span>
+      <div class="product-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 9l-3.5 3L8 15" opacity=".7"/>
+          <path d="M16 9l3.5 3-3.5 3" opacity=".7"/>
+          <path d="M9.5 19l5-14" opacity=".4"/>
+        </svg>
+      </div>
+      <div>
+        <div class="product-name">Escudo de Suplantación de Llamada</div>
+        <div class="product-tag">Llamadas a herramienta extraídas de texto libre, no del campo estructurado ("Repeat-After-Me")</div>
+        <p class="product-desc">Las APIs de los modelos devuelven una llamada a herramienta en un campo estructurado y dedicado (tool_calls/function_call/tool_use) — se llena solo cuando el modelo invocó de verdad el mecanismo nativo. Si el código de orquestación en cambio escanea el texto libre de la respuesta buscando un patrón que "parece" una llamada (TOOL_CALL:, un bloque ```json, &lt;tool_call&gt;) y la ejecuta, cualquier contenido con esa forma — incrustado en un documento, una web, o el resultado de otra herramienta que el modelo simplemente repite — puede terminar ejecutado como si fuera real. Documentado en octubre 2026 contra 6 frameworks de agentes: LangGraph, Microsoft Agent Framework, Google ADK 2.0, AutoGen, AWS Strands y CrewAI.</p>
+        <p class="product-usage"><b>Cómo se usa:</b> pegale a esta herramienta el código de orquestación del lado del agente que interpreta la respuesta del modelo — revisa parseo de texto libre en busca de marcas de llamada a herramienta, si ese parseo dispara una ejecución real, y si el código lee o no el campo estructurado de la API.</p>
+      </div>
+      <div class="product-cta">
+        <a class="btn btn--dark" href="https://claude.ai/artifact/68oZc1jMUoz6DtF3z2wTFo" target="_blank" rel="noopener">Abrir herramienta →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="como-funciona" style="padding-top:0;">
+  <div class="block-inner">
+    <span class="kicker">Cómo funciona</span>
+    <h2>Un mismo objetivo, en cada herramienta</h2>
+    <p class="lede">Ninguna herramienta de Garita Labs reemplaza el criterio humano — cada una lo activa justo antes de que importe. Así funciona el flujo de la primera, Garita MCP; las demás se conectan al mismo servidor, con la misma llave.</p>
+
+    <div class="steps">
+      <div class="step">
+        <span class="step-mark">01 · Audita</span>
+        <h3>Puntaje de confianza del servidor</h3>
+        <p>Pega el manifiesto de un servidor MCP y obtén un puntaje basado en señales estándar: autenticación declarada, anotaciones de riesgo (destructiveHint, openWorldHint) y superficie de herramientas expuesta.</p>
+      </div>
+      <div class="step">
+        <span class="step-mark">02 · Simula</span>
+        <h3>Aprobación antes de ejecutar</h3>
+        <p>Define tu política de retención y comprueba, antes de conectar el agente en serio, si una acción como pagar o borrar pasaría sola o quedaría retenida para revisión humana.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block access" id="acceso">
+  <div class="block-inner access-inner">
+    <span class="stamp-badge stamp-badge--warn">En construcción</span>
+    <h2>Garita Labs todavía se está armando</h2>
+    <p class="lede">Garita MCP ya se puede usar hoy, sin costo. Los planes de pago y el cobro en USDT / USDC llegan en cuanto la pasarela esté lista.</p>
+    <div class="access-ctas">
+      <a class="btn btn--dark" href="mailto:williamdanielramirez@gmail.com?subject=Acceso%20a%20Garita%20Labs">Escríbenos</a>
+      <a class="btn btn--ghost" style="color:var(--ink); border-color:var(--line);" href="https://claude.ai/artifact/PqSUGMaRowvjsw4rnQCQsS" target="_blank" rel="noopener">Probar Garita MCP</a>
+      <!-- TODO(William): en cuanto tengas tu link de checkout de CoinGate, reemplaza href="#"
+           por ese link y quita la clase "btn--disabled" (y el aria-disabled/title) de este botón. -->
+      <a class="btn btn--ghost btn--disabled" style="color:var(--ink); border-color:var(--line);" href="#" aria-disabled="true" title="Muy pronto — la pasarela de pago está en configuración">Pagar con cripto (USDT/USDC)</a>
+    </div>
+    <p class="access-note">Sin cuentas, sin tarjetas guardadas — por ahora, solo la herramienta. El cobro en cripto se activa en cuanto conectemos la pasarela.</p>
+  </div>
+</section>
+
+<footer>
+  <span>Garita Labs</span>
+  <span>Puestos de control para agentes de IA</span>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  function openGate(){
+    var gate = document.getElementById('gate');
+    if(gate) gate.classList.add('is-open');
+  }
+  // Page-load reveal only (not scroll-triggered); resolves in ~1.3s either way.
+  if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    openGate();
+  } else {
+    requestAnimationFrame(function(){ requestAnimationFrame(openGate); });
+  }
+})();
+</script>

@@ -65,6 +65,48 @@ test('patrón Datadog: afirma "solo lectura" sin aplicación real -> riesgo (no 
   assert.ok(tieneHallazgoLectura);
 });
 
+test('afirma "solo lectura" con un readOnly:true no relacionado (UI) lejos en el archivo NO debe contar como aplicación real -> riesgo', () => {
+  const relleno = '  // relleno de distancia\n'.repeat(40);
+  const r = checkSqlInjectionRisk({
+    codigo: `
+      // Esta herramienta es de solo lectura.
+      async function buscar(nombreUsuario) {
+        return db.query('SELECT * FROM users WHERE name = $1', [nombreUsuario]);
+      }
+${relleno}
+      const uiConfig = { readOnly: true, theme: 'dark' };
+    `
+  });
+  assert.ok(r.puntaje < 100, 'puntaje=' + r.puntaje);
+  const tieneHallazgoLectura = r.hallazgos.some(h => h.etiqueta.includes('solo lectura'));
+  assert.ok(tieneHallazgoLectura);
+});
+
+test('función local "prepare(valor)" passthrough no debe contar como consulta preparada real -> alto riesgo', () => {
+  const r = checkSqlInjectionRisk({
+    codigo: `
+      function prepare(valor) { return valor; }
+      async function buscar(nombre) {
+        const preparado = prepare(nombre);
+        return db.query("SELECT * FROM users WHERE name = '" + preparado + "'");
+      }
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
+test('connection.prepare( como método real de un objeto conocido SÍ cuenta como señal de validación -> aceptable', () => {
+  const r = checkSqlInjectionRisk({
+    codigo: `
+      function buscar(nombre) {
+        const consultaPreparada = connection.prepare(nombre);
+        return db.query('SELECT * FROM users WHERE name = ' + consultaPreparada);
+      }
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Aceptable');
+});
+
 test('combinación de varios problemas puntúa peor que uno solo', () => {
   const soloUno = checkSqlInjectionRisk({
     codigo: `db.query("SELECT * FROM users WHERE id = " + id)`

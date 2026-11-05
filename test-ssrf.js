@@ -47,6 +47,20 @@ def traer_url(webhook_url):
   assert.ok(r.puntaje < 80, 'puntaje=' + r.puntaje);
 });
 
+test('REGRESIÓN: comentario que MENCIONA una validación pero no existe código real de validación -> sigue siendo alto riesgo (evasión real encontrada y corregida)', () => {
+  const r = checkSsrfRisk({
+    codigo: `
+      // usamos un allowlist de hosts permitidos para esto
+      async function traerUrl(req) {
+        const url = req.body.url;
+        const res = await fetch(url);
+        return res.text();
+      }
+    `
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo', 'el comentario no debe contar como validación real');
+});
+
 test('IP de metadata de AWS hardcodeada dentro de una llamada fetch -> alto riesgo', () => {
   const r = checkSsrfRisk({
     codigo: `const creds = await fetch('http://169.254.169.254/latest/meta-data/iam/security-credentials/');`

