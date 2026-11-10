@@ -48,6 +48,7 @@ const { checkExcessiveAgencyRisk } = require('./lib/excessive-agency');
 const { checkCallSpoofingRisk } = require('./lib/call-spoofing');
 const licensing = require('./lib/licensing');
 const coingate = require('./lib/coingate');
+const paypal = require('./lib/paypal');
 const vigia = require('./lib/vigia');
 
 function extractApiKey(req) {
@@ -1327,6 +1328,32 @@ function publicBaseUrl(req) {
   return process.env.PUBLIC_BASE_URL || (req.protocol + '://' + req.get('host'));
 }
 
+// ---------- CORS acotado para el botón "pagar con cripto" del sitio web ----------
+// El resto de la API no tiene CORS — nada más la llama un navegador desde
+// estos dos endpoints (crear una llave gratis y arrancar un pago). Abrir
+// CORS de más sin necesidad es justo el patrón de riesgo que
+// detect_missing_auth_risk marca ("Access-Control-Allow-Origin: *" sin
+// restringir origen), así que esto solo responde al origen exacto del
+// sitio — nunca con "*" — y solo en estas dos rutas.
+const ALLOWED_WEB_ORIGINS = new Set([
+  'https://garitalabs.dev',
+  'https://www.garitalabs.dev'
+]);
+function allowWebOrigin(req, res, next) {
+  const origin = req.get('origin');
+  if (origin && ALLOWED_WEB_ORIGINS.has(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Vary', 'Origin');
+    res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+  }
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+}
+app.use('/crear-llave', allowWebOrigin);
+app.use('/comprar-creditos', allowWebOrigin);
+app.use('/comprar-creditos-paypal', allowWebOrigin);
+
 app.get('/', (req, res) => {
   res.type('text/plain').send(
     'Garita MCP server — remote MCP endpoint en POST /mcp (requiere llave de acceso en el header Authorization).\n\n' +
@@ -1339,6 +1366,8 @@ app.get('/', (req, res) => {
     '                                    ("empresarial" además quita el tope diario de 50 usos/día para siempre en esa llave)\n' +
     '  GET  /verificar-pago?orderId=  — revisa a mano si un pago ya se confirmó (respaldo, normalmente no hace falta)\n' +
     '  POST /coingate/webhook         — (uso interno de CoinGate, no lo llames a mano)\n' +
+    '  POST /comprar-creditos-paypal  — { apiKey, pack } → devuelve un link de pago PayPal (misma idea que /comprar-creditos, con PayPal en vez de cripto)\n' +
+    '  GET  /paypal/retorno           — (uso interno, a donde PayPal manda al comprador después de aprobar el pago)\n' +
     '  POST /mcp                      — endpoint MCP, ver README para conectarlo desde un agente\n' +
     '  POST /vigia/analizar           — { apiKey, mensaje } → el agente Vigía analiza y responde en español\n'
   );
@@ -1501,6 +1530,96 @@ app.get('/verificar-pago', async (req, res) => {
     console.error('Error en /verificar-pago:', err);
     res.status(500).json({ error: true, message: 'No se pudo consultar el estado del pago: ' + err.message });
   }
+});
+
+// ---------- compra de créditos (PayPal) ----------
+// Mismos paquetes y precios que CoinGate (lib/coingate.js sigue siendo la
+// única fuente de verdad de precios). A diferencia de CoinGate, PayPal no
+// usa un webhook por defecto acá: el propio navegador del comprador vuelve
+// a /paypal/retorno después de aprobar el pago, y ahí se captura y acredita
+// — por eso basta con registrar la orden, sin "token" de firma como el de
+// CoinGate (la seguridad acá la da que solo nosotros sabemos capturar esa
+// orden exacta contra la cuenta de PayPal configurada).
+app.post('/comprar-creditos-paypal', async (req, res) => {
+  try {
+    const apiKey = String((req.body && req.body.apiKey) || '');
+    const pack = String((req.body && req.body.pack) || '');
+    const record = await licensing.getKeyRecord(apiKey);
+    if (!record) return res.status(404).json({ error: true, message: 'Llave no encontrada. Crea una primero en POST /crear-llave.' });
+    if (!paypal.CREDIT_PACKS[pack]) {
+      return res.status(400).json({ error: true, message: 'Paquete inválido. Opciones: ' + Object.keys(paypal.CREDIT_PACKS).join(', ') });
+    }
+
+    const base = publicBaseUrl(req);
+    const { packConfig, payment_url, paypalOrderId } = await paypal.createOrder({
+      pack,
+      returnUrl: base + '/paypal/retorno',
+      cancelUrl: base + '/paypal/cancelado'
+    });
+    await licensing.createOrderRecord(paypalOrderId, {
+      apiKey,
+      credits: packConfig.credits,
+      enterprise: !!packConfig.enterprise,
+      provider: 'paypal'
+    });
+
+    res.json({
+      payment_url,
+      orderId: paypalOrderId,
+      paquete: packConfig.label,
+      creditos: packConfig.credits,
+      empresarial: !!packConfig.enterprise,
+      precio: packConfig.price_amount + ' ' + packConfig.price_currency,
+      nota: 'Vas a volver a este sitio automáticamente después de aprobar el pago en PayPal — ahí se acreditan los créditos solos.'
+    });
+  } catch (err) {
+    console.error('Error en /comprar-creditos-paypal:', err);
+    res.status(500).json({ error: true, message: 'No se pudo crear la orden de pago: ' + err.message });
+  }
+});
+
+function paginaPago(titulo, mensaje, colorAcento) {
+  return '<!doctype html><html lang="es"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>' + titulo + ' — Garita Labs</title>' +
+    '<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:560px;margin:80px auto;padding:0 24px;color:#16211C;line-height:1.6}' +
+    'h1{font-size:1.4rem;border-left:4px solid ' + colorAcento + ';padding-left:14px}' +
+    'a{color:#33415C}</style></head><body>' +
+    '<h1>' + titulo + '</h1><p>' + mensaje + '</p>' +
+    '<p><a href="https://garitalabs.dev/#acceso">← Volver a Garita Labs</a></p>' +
+    '</body></html>';
+}
+
+// A donde PayPal manda de vuelta al comprador después de que aprueba el
+// pago (experience_context.return_url en createOrder). PayPal agrega
+// ?token=ID_DE_LA_ORDEN&PayerID=... — "token" acá es el ID de la orden, no
+// tiene relación con el "token" de firma que usa el webhook de CoinGate.
+app.get('/paypal/retorno', async (req, res) => {
+  const orderId = String(req.query.token || '');
+  try {
+    const order = await licensing.getOrderRecord(orderId);
+    if (!order) {
+      return res.status(404).send(paginaPago('Orden no encontrada', 'No encontramos esta orden de pago. Si ya pagaste, escríbenos a williamdanielramirez@gmail.com con el ID ' + (orderId || '(vacío)') + ' y lo revisamos a mano.', '#9C3B2E'));
+    }
+    if (order.processed) {
+      return res.send(paginaPago('¡Ya estaba acreditado!', 'Este pago ya se había confirmado antes. Tu llave de acceso ya tiene los créditos — no hace falta hacer nada más.', '#2F6B4F'));
+    }
+
+    const captured = await paypal.captureOrder(orderId);
+    const result = await creditOrderIfPaid(orderId, order, captured.status === 'COMPLETED' ? 'paid' : captured.status);
+
+    if (result.credited) {
+      return res.send(paginaPago('¡Pago confirmado!', 'Se acreditaron ' + order.credits + ' usos a tu llave de acceso. Ya puedes seguir usando las herramientas de Garita Labs.', '#2F6B4F'));
+    }
+    res.send(paginaPago('Pago pendiente', 'Tu pago todavía no quedó confirmado del lado de PayPal (estado: ' + (captured.status || 'desconocido') + '). Si creés que ya pagaste, escríbenos a williamdanielramirez@gmail.com con el ID ' + orderId + '.', '#A9701C'));
+  } catch (err) {
+    console.error('Error en /paypal/retorno:', err);
+    res.status(500).send(paginaPago('Algo salió mal', 'No pudimos confirmar tu pago automáticamente. Si ya pagaste, escríbenos a williamdanielramirez@gmail.com con el ID ' + (orderId || '(vacío)') + ' y lo acreditamos a mano — no se pierde.', '#9C3B2E'));
+  }
+});
+
+app.get('/paypal/cancelado', (req, res) => {
+  res.send(paginaPago('Pago cancelado', 'No se completó ningún cobro. Si fue un error, volvé a intentarlo cuando quieras.', '#A9701C'));
 });
 
 // ---------- Vigía (agente especializado, "Centinela Básico" / Escalón 1) ----------
