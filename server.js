@@ -1373,7 +1373,13 @@ app.get('/', (req, res) => {
   );
 });
 
-// ---------- llaves de acceso ----------
+   // ---------- verificación de propiedad del conector para Glama.ai ----------
+   app.get('/mcp/.well-known/glama.json', (req, res) => {
+     res.json({
+       '$schema': 'https://glama.ai/mcp/schemas/connector.json',
+       'claim': 'glama_claim_TV9FqLaRW43vedIBB_ueJ_0h_azh2rgs'
+     });
+   });// ---------- llaves de acceso ----------
 
 app.post('/crear-llave', async (req, res) => {
   try {
