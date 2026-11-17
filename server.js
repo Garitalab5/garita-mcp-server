@@ -46,10 +46,12 @@ const { checkSamplingHijackRisk } = require('./lib/sampling-hijack');
 const { checkOutputSchemaSsrfRisk } = require('./lib/output-schema-ssrf');
 const { checkExcessiveAgencyRisk } = require('./lib/excessive-agency');
 const { checkCallSpoofingRisk } = require('./lib/call-spoofing');
+const { checkSinglePointOfFailureRisk } = require('./lib/single-point-of-failure');
 const licensing = require('./lib/licensing');
 const coingate = require('./lib/coingate');
 const paypal = require('./lib/paypal');
 const vigia = require('./lib/vigia');
+const ventas = require('./lib/ventas');
 
 function extractApiKey(req) {
   const header = req.headers['authorization'] || '';
@@ -1314,6 +1316,44 @@ function buildServer(apiKey) {
     }
   );
 
+  server.registerTool(
+    'detect_single_point_of_failure_risk',
+    {
+      title: 'Escudo de Dependencia Frágil',
+      description:
+        'Analiza código que hace llamadas a servicios externos (fetch/axios/http.request en JavaScript, requests/' +
+        'urllib en Python) en busca de llamadas SIN timeout configurado — que pueden quedar esperando indefinidamente ' +
+        'y bloquear al agente si el servicio externo se cuelga — y, por separado, llamadas con timeout pero SIN ' +
+        'ninguna lógica de reintento/backoff visible, donde una falla transitoria y corta se propaga directo como ' +
+        'una falla total de la herramienta. Motivada por el apagón de control aéreo de EE. UU. del 13 de noviembre ' +
+        'de 2026: una falla de telecomunicaciones en un solo punto crítico, sin mecanismo de respaldo, obligó a ' +
+        'detener todos los despegues del país durante horas — el mismo patrón (una dependencia única sin timeout ' +
+        'ni plan de respaldo) es lo que esta herramienta busca en el código de un servidor o agente MCP. Es un ' +
+        'análisis estático por patrones de texto (no ejecuta el código ni mide latencia real) — mismo enfoque que ' +
+        'detect_missing_auth_risk y detect_unbounded_allocation_risk. Requiere una llave de acceso válida (usos ' +
+        'gratis o créditos) — ver POST /crear-llave.',
+      inputSchema: {
+        codigo: z.string().describe('El código que hace llamadas a servicios externos, en texto plano.'),
+        lenguaje: z.string().optional().describe('Solo informativo (ej. "javascript") — este campo no cambia el resultado.')
+      }
+    },
+    async ({ codigo, lenguaje }) => {
+      const check = await licensing.checkAndConsume(apiKey);
+      if (!check.allowed) return licenseErrorResult(check);
+      let result;
+      try {
+        result = checkSinglePointOfFailureRisk({ codigo, lenguaje });
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: true, message: err.message }, null, 2) }]
+        };
+      }
+      result._licencia = check.remaining;
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
   return server;
 }
 
@@ -1353,11 +1393,12 @@ function allowWebOrigin(req, res, next) {
 app.use('/crear-llave', allowWebOrigin);
 app.use('/comprar-creditos', allowWebOrigin);
 app.use('/comprar-creditos-paypal', allowWebOrigin);
+app.use('/ventas/chat', allowWebOrigin);
 
 app.get('/', (req, res) => {
   res.type('text/plain').send(
     'Garita MCP server — remote MCP endpoint en POST /mcp (requiere llave de acceso en el header Authorization).\n\n' +
-    'Herramientas MCP disponibles: audit_mcp_server, simulate_approval, detect_poisoned_tool_descriptions (Garita Escudo), check_known_vulnerabilities, detect_tool_rug_pull, detect_poisoned_config_files, check_package_authenticity, detect_memory_poisoning, detect_ssrf_risk, detect_path_traversal_risk, detect_command_injection_risk, detect_sql_injection_risk, detect_token_passthrough_risk, detect_hardcoded_secrets_risk, detect_insecure_deserialization_risk, detect_toxic_flow_risk, detect_ssti_risk, detect_dynamic_code_risk, detect_dns_rebinding_risk, detect_missing_auth_risk, detect_mcp_stdio_launch_risk, detect_redos_risk, detect_session_hijack_risk, detect_oauth_audience_confusion_risk, detect_unbounded_allocation_risk, detect_cross_client_leak_risk, detect_sampling_hijack_risk, detect_output_schema_ssrf_risk, detect_excessive_agency_risk, detect_call_spoofing_risk.\n\n' +
+    'Herramientas MCP disponibles: audit_mcp_server, simulate_approval, detect_poisoned_tool_descriptions (Garita Escudo), check_known_vulnerabilities, detect_tool_rug_pull, detect_poisoned_config_files, check_package_authenticity, detect_memory_poisoning, detect_ssrf_risk, detect_path_traversal_risk, detect_command_injection_risk, detect_sql_injection_risk, detect_token_passthrough_risk, detect_hardcoded_secrets_risk, detect_insecure_deserialization_risk, detect_toxic_flow_risk, detect_ssti_risk, detect_dynamic_code_risk, detect_dns_rebinding_risk, detect_missing_auth_risk, detect_mcp_stdio_launch_risk, detect_redos_risk, detect_session_hijack_risk, detect_oauth_audience_confusion_risk, detect_unbounded_allocation_risk, detect_cross_client_leak_risk, detect_sampling_hijack_risk, detect_output_schema_ssrf_risk, detect_excessive_agency_risk, detect_call_spoofing_risk, detect_single_point_of_failure_risk.\n\n' +
     'Vigía — agente especializado que decide por sí mismo cuáles de esas herramientas usar y devuelve un informe en español: POST /vigia/analizar.\n\n' +
     'Endpoints:\n' +
     '  POST /crear-llave              — consigue una llave de acceso gratis (' + licensing.DEFAULT_FREE_USES + ' usos de prueba)\n' +
@@ -1369,7 +1410,8 @@ app.get('/', (req, res) => {
     '  POST /comprar-creditos-paypal  — { apiKey, pack } → devuelve un link de pago PayPal (misma idea que /comprar-creditos, con PayPal en vez de cripto)\n' +
     '  GET  /paypal/retorno           — (uso interno, a donde PayPal manda al comprador después de aprobar el pago)\n' +
     '  POST /mcp                      — endpoint MCP, ver README para conectarlo desde un agente\n' +
-    '  POST /vigia/analizar           — { apiKey, mensaje } → el agente Vigía analiza y responde en español\n'
+    '  POST /vigia/analizar           — { apiKey, mensaje } → el agente Vigía analiza y responde en español\n' +
+    '  POST /ventas/chat              — { mensaje, historial? } → chat público de ventas (sin llave), responde dudas sobre Garita\n'
   );
 });
 
@@ -1672,6 +1714,46 @@ app.post('/vigia/analizar', async (req, res) => {
     }
     console.error('Error en /vigia/analizar:', err);
     res.status(500).json({ error: true, message: err.message || 'No se pudo completar el análisis.' });
+  }
+});
+
+// ---------- asistente de ventas (chat público del sitio) ----------
+
+// A diferencia de /vigia/analizar, este endpoint NO requiere llave de
+// acceso de Garita Labs — es el chat público de garitalabs.dev para gente
+// que todavía no es cliente. Por eso en vez de cobrarse con
+// licensing.checkAndConsume() (que necesita una llave ya existente), se
+// limita por IP con licensing.rateLimitSalesChat() — ver lib/ventas.js para
+// el porqué: sin esto, cualquiera podría usarlo como un proxy gratis hacia
+// la API de Claude sin que le cueste nada a quien llama.
+// Mismo caso que Vigía respecto a ANTHROPIC_API_KEY: si falta, responde 503
+// en vez de 500.
+app.post('/ventas/chat', async (req, res) => {
+  try {
+    const ip = req.ip || 'desconocida';
+    const okRate = await licensing.rateLimitSalesChat(ip);
+    if (!okRate) {
+      return res.status(429).json({ error: true, message: 'Demasiados mensajes desde esta dirección hoy. Intenta de nuevo mañana, o escríbenos directo a hola@garitalabs.dev.' });
+    }
+
+    const mensaje = String((req.body && req.body.mensaje) || '');
+    if (!mensaje.trim()) {
+      return res.status(400).json({ error: true, message: 'Debes enviar "mensaje" con el texto de la persona.' });
+    }
+    if (mensaje.length > 4000) {
+      return res.status(400).json({ error: true, message: 'El mensaje es demasiado largo (máximo 4,000 caracteres).' });
+    }
+    const historial = Array.isArray(req.body && req.body.historial) ? req.body.historial : [];
+
+    const resultado = await ventas.responder({ mensaje, historial });
+    res.json(resultado);
+  } catch (err) {
+    if (/ANTHROPIC_API_KEY/.test(err.message || '')) {
+      console.error('El asistente de ventas no está configurado:', err.message);
+      return res.status(503).json({ error: true, message: err.message });
+    }
+    console.error('Error en /ventas/chat:', err);
+    res.status(500).json({ error: true, message: err.message || 'No se pudo responder en este momento.' });
   }
 });
 
